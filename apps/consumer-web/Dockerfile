@@ -10,6 +10,11 @@ RUN pnpm install --frozen-lockfile \
  && cp -r apps/consumer-web/build /out/build
 
 FROM node@sha256:873f586f3794f52281bd039bf02c048a0be08fde619338f9941bad1eb6b34530
+# Patches de segurança da distro publicados depois do digest base (portão Trivy do CI); o npm,
+# o corepack e o yarn embutidos na imagem não são usados em runtime e saem da superfície de ataque.
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/* \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /opt/yarn-* \
+    /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg
 ENV NODE_ENV=production PORT=8080
 WORKDIR /app
 COPY --from=build --chown=node:node /out/ /app/
