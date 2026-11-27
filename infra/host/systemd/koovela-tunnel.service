@@ -1,0 +1,19 @@
+[Unit]
+Description=Koovela: Cloudflare Tunnel (única entrada do host — REQ-FND-033), independente dos deploys
+Requires=docker.service
+After=docker.service koovela-secrets.service network-online.target
+Wants=network-online.target
+
+[Service]
+Restart=always
+RestartSec=5
+ExecStartPre=-/usr/bin/docker rm -f koovela-cloudflared
+ExecStart=/usr/bin/docker run --rm --name koovela-cloudflared --network host --read-only \
+  --security-opt no-new-privileges:true --memory 128m \
+  -v /etc/koovela/secrets/tunnel_token:/run/secrets/tunnel_token:ro -e TUNNEL_TOKEN_FILE=/run/secrets/tunnel_token \
+  cloudflare/cloudflared@sha256:55c7e3e8d89d5e8d20b75a82f3602cbf98e06db406e73e282073cfdc5a9a3af6 \
+  tunnel --no-autoupdate run
+ExecStop=/usr/bin/docker stop koovela-cloudflared
+
+[Install]
+WantedBy=multi-user.target

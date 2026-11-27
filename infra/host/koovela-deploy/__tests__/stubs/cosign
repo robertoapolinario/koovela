@@ -1,0 +1,5 @@
+#!/bin/sh
+# stub: assinatura válida só para digests listados em $COSIGN_VALID
+for a in "$@"; do ref=$a; done
+case " ${COSIGN_VALID:-} " in *" ${ref##*@} "*) exit 0 ;; esac
+exit 1

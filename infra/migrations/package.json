@@ -1,0 +1,19 @@
+{
+  "name": "@koovela/migrations",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "bin": { "koovela-migrate": "./src/cli.ts" },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "migrate": "node src/cli.ts",
+    "test:integration": "vitest run --config ../../vitest.integration.config.ts infra/migrations"
+  },
+  "dependencies": {
+    "@koovela/platform-config": "workspace:*",
+    "kysely": "0.29.9",
+    "mysql2": "3.24.6"
+  },
+  "devDependencies": { "@koovela/testing": "workspace:*" }
+}

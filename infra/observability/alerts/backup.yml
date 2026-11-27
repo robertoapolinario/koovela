@@ -1,0 +1,21 @@
+groups:
+  - name: backup
+    rules:
+      - alert: BackupFailed
+        expr: koovela_backup_last_status{kind="daily"} == 0 or (time() - koovela_backup_last_success_timestamp_seconds{kind="daily"}) > 93600
+        labels: { severity: critical, environment: '{{ $externalLabels.environment }}' }
+        annotations:
+          summary: 'backup diário falhou ou não roda há mais de 26 h'
+          runbook: docs/ops/runbooks/alertas/backup-failed.md
+      - alert: BinlogShipStale
+        expr: (time() - koovela_backup_last_success_timestamp_seconds{kind="binlog"}) > 3600
+        labels: { severity: critical, environment: '{{ $externalLabels.environment }}' }
+        annotations:
+          summary: 'binlogs sem envio há mais de 1 h (RPO)'
+          runbook: docs/ops/runbooks/alertas/backup-failed.md
+      - alert: RestoreTestStale
+        expr: (time() - koovela_restore_test_last_timestamp_seconds) > 35 * 86400
+        labels: { severity: warning, environment: '{{ $externalLabels.environment }}' }
+        annotations:
+          summary: 'último teste de restauração com mais de 35 dias'
+          runbook: docs/ops/runbooks/alertas/restore-test-stale.md

@@ -1,0 +1,55 @@
+# promtool test rules alerts/__tests__/alerts.test.yml  (rodar em infra/observability)
+rule_files: [../platform.yml, ../hosts.yml, ../backup.yml, ../edge.yml]
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    external_labels: { environment: production }
+    input_series:
+      - series: 'traefik_service_server_up{service="gateway@file",url="http://gateway:8080"}'
+        values: '1 0 0 0 0'
+      - series: 'node_filesystem_avail_bytes{fstype="ext4",mountpoint="/",host="db"}'
+        values: '10x15'
+      - series: 'node_filesystem_size_bytes{fstype="ext4",mountpoint="/",host="db"}'
+        values: '100x15'
+      - series: 'koovela_deploy_last_status{version="2026.11.27-abc1234"}'
+        values: '0'
+      - series: 'koovela_free_tier_usage_ratio{service="r2"}'
+        values: '0.85x70'
+      - series: 'koovela_edge_cert_expiry_days{host="api.koovela.com"}'
+        values: '12'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ServiceUnhealthy
+        exp_alerts:
+          - exp_labels: { severity: critical, environment: production, service: gateway@file }
+            exp_annotations: { summary: 'gateway@file sem saúde há 2 min', runbook: docs/ops/runbooks/alertas/service-unhealthy.md }
+      - eval_time: 12m
+        alertname: DiskAbove80
+        exp_alerts:
+          - exp_labels: { severity: critical, environment: production, fstype: ext4, mountpoint: /, host: db }
+            exp_annotations: { summary: 'disco / acima de 80% em db', runbook: docs/ops/runbooks/alertas/disk-above-80.md }
+      - eval_time: 0m
+        alertname: DeployFailed
+        exp_alerts:
+          - exp_labels: { severity: critical, environment: production, version: 2026.11.27-abc1234 }
+            exp_annotations: { summary: 'último deploy falhou (2026.11.27-abc1234)', runbook: docs/ops/runbooks/alertas/deploy-failed.md }
+      - eval_time: 61m
+        alertname: FreeTierUsageHigh
+        exp_alerts:
+          - exp_labels: { severity: warning, environment: production, service: r2 }
+            exp_annotations: { summary: 'plano gratuito de r2 em 85% (REQ-FND-048)', runbook: docs/ops/runbooks/alertas/free-tier-usage.md }
+      - eval_time: 0m
+        alertname: OriginCertExpiring
+        exp_alerts:
+          - exp_labels: { severity: warning, environment: production, host: api.koovela.com }
+            exp_annotations: { summary: 'certificado de api.koovela.com expira em 12 dias', runbook: docs/ops/runbooks/alertas/cert-expiring.md }
+
+  - interval: 1m
+    external_labels: { environment: staging }
+    input_series:
+      - series: 'up{job="node",host="app"}'
+        values: '1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: HostDown
+        exp_alerts: []

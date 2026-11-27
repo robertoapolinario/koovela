@@ -1,0 +1,14 @@
+pre-commit:
+  parallel: true
+  commands:
+    gitleaks:
+      run: gitleaks git --staged --no-banner --redact --config .gitleaks.toml || sh tools/dev/secrets-scan.sh
+    lint:
+      glob: "*.{ts,tsx,js,mjs,cjs}"
+      run: pnpm exec eslint --no-warn-ignored {staged_files}
+    spec-lint:
+      run: pnpm spec:lint
+commit-msg:
+  commands:
+    commitlint:
+      run: pnpm exec commitlint --edit {1}

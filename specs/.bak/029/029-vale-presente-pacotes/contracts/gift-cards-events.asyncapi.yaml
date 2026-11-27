@@ -1,0 +1,28 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Payments — eventos de vale-presente (spec 029)
+  version: 1.0.0
+  description: >
+    payments.events. Sem código do vale nem contato do destinatário. Consumido por 011 (entrega e avisos de validade),
+    015 (pontos no uso), 017 (NFS-e no uso), 018 (comissão), 023 (BI), projeção da carteira.
+defaultContentType: application/json
+channels:
+  paymentsEvents:
+    address: payments.events
+    messages:
+      giftCardChanged: { $ref: '#/components/messages/GiftCardChanged' }
+      giftCardUsed: { $ref: '#/components/messages/GiftCardUsed' }
+operations:
+  publishGiftCardEvents:
+    action: send
+    channel: { $ref: '#/channels/paymentsEvents' }
+components:
+  messages:
+    GiftCardChanged:
+      name: payments.gift_card.changed
+      summary: event_type ∈ payments.gift_card.{paid,delivered,redeemed,depleted,expiring_soon,expired,refunded,cancelled,resent}.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { gift_card_id: { type: string, format: uuid }, branch_id: { type: string, format: uuid }, buyer_consumer_id: { type: string, format: uuid }, recipient_consumer_id: { type: [string, 'null'], format: uuid }, kind: { type: string }, state: { type: string } } } } }
+    GiftCardUsed:
+      name: payments.gift_card.used.v1
+      summary: Consumo na conclusão — gatilho da NFS-e no uso (017), comissão (018) e pontos do presenteado (015)
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { gift_card_id: { type: string, format: uuid }, appointment_id: { type: string, format: uuid }, covered_cents: { type: integer } } } } }

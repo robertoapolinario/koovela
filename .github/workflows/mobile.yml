@@ -1,0 +1,90 @@
+# Apps nativos (REQ-FND-094): Android assinado → teste interno do Google Play; iOS só para simulador
+# até existir a conta Apple Developer (docs/ops/runbooks/apple-pendente.md).
+name: mobile
+
+on:
+  push:
+    branches: [main]
+    paths: ['apps/consumer-mobile/**', 'apps/pro-mobile/**', 'packages/ui-native/**', 'packages/design-tokens/**', 'packages/i18n/**', 'packages/sdk/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: google-play
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - { dir: apps/consumer-mobile, package: com.koovela.app }
+          - { dir: apps/pro-mobile, package: com.koovela.pro }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version-file: .nvmrc, cache: pnpm }
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with: { distribution: temurin, java-version: '17' }
+      - run: pnpm install --frozen-lockfile
+      - name: testes do shell
+        run: pnpm --filter ./${{ matrix.app.dir }} test
+      - name: expo prebuild (CNG)
+        working-directory: ${{ matrix.app.dir }}
+        env: { EXPO_PUBLIC_API_BASE_URL: https://api.staging.koovela.com }
+        run: pnpm exec expo prebuild --platform android --clean --no-install
+      - name: Gradle release assinado com a chave de upload
+        working-directory: ${{ matrix.app.dir }}/android
+        env:
+          UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: |
+          echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          ./gradlew --no-daemon bundleRelease \
+            -Pandroid.injected.signing.store.file="$RUNNER_TEMP/upload.jks" \
+            -Pandroid.injected.signing.store.password="$UPLOAD_KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$UPLOAD_KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$UPLOAD_KEY_PASSWORD" \
+            -PversionCode=${{ github.run_number }}
+          rm -f "$RUNNER_TEMP/upload.jks"
+      - name: fastlane supply → teste interno
+        working-directory: ${{ matrix.app.dir }}/android
+        env: { PLAY_JSON: '${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}' }
+        run: |
+          printf '%s' "$PLAY_JSON" > "$RUNNER_TEMP/play.json"
+          gem install fastlane -v 2.229.0 --no-document
+          fastlane supply --aab app/build/outputs/bundle/release/app-release.aab --package_name ${{ matrix.app.package }} \
+            --track internal --json_key "$RUNNER_TEMP/play.json" --release_status draft
+          rm -f "$RUNNER_TEMP/play.json"
+
+  ios-simulator:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [apps/consumer-mobile, apps/pro-mobile]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version-file: .nvmrc, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: build para simulador (sem assinatura)
+        working-directory: ${{ matrix.app }}
+        run: |
+          pnpm exec expo prebuild --platform ios --clean
+          cd ios
+          ws=$(find . -maxdepth 1 -name '*.xcworkspace' | head -1)
+          xcodebuild -workspace "$ws" -scheme "$(basename "$ws" .xcworkspace)" \
+            -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build | tail -20

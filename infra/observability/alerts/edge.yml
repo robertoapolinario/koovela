@@ -1,0 +1,22 @@
+groups:
+  - name: edge-and-quotas
+    rules:
+      - alert: OriginCertExpiring
+        expr: min by (host) (koovela_edge_cert_expiry_days) < 30
+        labels: { severity: warning, environment: '{{ $externalLabels.environment }}' }
+        annotations:
+          summary: 'certificado de {{ $labels.host }} expira em {{ $value }} dias'
+          runbook: docs/ops/runbooks/alertas/cert-expiring.md
+      - alert: SecurityTxtExpiring
+        expr: koovela_security_txt_expiry_days < 30
+        labels: { severity: warning, environment: '{{ $externalLabels.environment }}' }
+        annotations:
+          summary: 'security.txt expira em {{ $value }} dias'
+          runbook: docs/ops/runbooks/alertas/security-txt-expiring.md
+      - alert: FreeTierUsageHigh
+        expr: koovela_free_tier_usage_ratio >= 0.8
+        for: 1h
+        labels: { severity: warning, environment: '{{ $externalLabels.environment }}' }
+        annotations:
+          summary: 'plano gratuito de {{ $labels.service }} em {{ $value | humanizePercentage }} (REQ-FND-048)'
+          runbook: docs/ops/runbooks/alertas/free-tier-usage.md

@@ -1,0 +1,137 @@
+openapi: 3.1.0
+info:
+  title: Koovela Engagement — CRM e campanhas
+  version: 1.0.0
+  description: Spec 028. x-koovela-action em toda operação. Envio sempre pelo notification (011), category=marketing.
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/consumer/marketing-consents:
+    get:
+      operationId: listMarketingConsents
+      x-koovela-action: consumer.marketing_consent.read
+      responses:
+        '200': { description: Por estabelecimento e canal }
+    put:
+      operationId: setMarketingConsent
+      x-koovela-action: consumer.marketing_consent.update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [business_id, channels, text_version]
+              properties:
+                business_id: { type: string, format: uuid }
+                channels: { type: array, items: { type: string, enum: [push, email, sms] } }
+                text_version: { type: string }
+                origin: { type: string, enum: [confirmation, profile, offer] }
+      responses:
+        '200': { description: Registrado (e no registro central da 022) }
+  /v1/public/unsubscribe/{token}:
+    post:
+      operationId: unsubscribe
+      x-koovela-action: public.marketing.unsubscribe
+      security: []
+      parameters: [ { name: token, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '200': { description: Descadastro daquele canal e estabelecimento, efeito ≤ 1 min, sem login }
+  /v1/tenant/crm/segments:
+    post:
+      operationId: saveSegment
+      x-koovela-action: crm.segment.manage
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [name, rules], properties: { name: { type: string }, rules: { type: object } } }
+      responses:
+        '201': { description: Segmento salvo }
+  /v1/tenant/crm/segments/{segment_id}/preview:
+    get:
+      operationId: previewSegment
+      x-koovela-action: crm.segment.preview
+      parameters: [ { name: segment_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Total e alcançáveis por canal; lista nominal só ao Proprietário }
+  /v1/tenant/crm/campaigns:
+    post:
+      operationId: saveCampaign
+      x-koovela-action: crm.campaign.manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, segment_id, channels, content]
+              properties:
+                name: { type: string }
+                segment_id: { type: string, format: uuid }
+                channels: { type: array, items: { type: string, enum: [push, email, sms] } }
+                content: { type: object, additionalProperties: { type: string } }
+                email_image_media_id: { type: string, format: uuid }
+                offer: { type: object, properties: { service_ids: { type: array, items: { type: string, format: uuid } }, discount_bps: { type: integer }, discount_cents: { type: integer }, valid_until: { type: string, format: date } } }
+                schedule_at: { type: [string, 'null'], format: date-time }
+      responses:
+        '201': { description: Rascunho }
+        '422': { description: crm.channel_not_allowed, crm.content_blocked, crm.health_price_content }
+  /v1/tenant/crm/campaigns/{campaign_id}/test:
+    post:
+      operationId: sendTest
+      x-koovela-action: crm.campaign.manage
+      parameters: [ { name: campaign_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '202': { description: Envio de teste ao Proprietário }
+  /v1/tenant/crm/campaigns/{campaign_id}/quote:
+    get:
+      operationId: quoteCampaign
+      x-koovela-action: crm.campaign.manage
+      parameters: [ { name: campaign_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Alcançáveis por canal, consumo da cota e custo do excedente }
+  /v1/tenant/crm/campaigns/{campaign_id}/send:
+    post:
+      operationId: sendCampaign
+      x-koovela-action: crm.campaign.send
+      parameters:
+        - { name: campaign_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { confirm_overage: { type: boolean, default: false } } }
+      responses:
+        '202': { description: Agendada/enviando (sem excedente confirmado, só até a cota); auditado }
+        '409': { description: crm.tenant_paused_for_review }
+  /v1/tenant/crm/campaigns/{campaign_id}/results:
+    get:
+      operationId: campaignResults
+      x-koovela-action: crm.campaign.read
+      parameters: [ { name: campaign_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Por canal — enviados, entregues, aberturas, cliques, descadastros, agendamentos, atendimentos, receita, descontos, reativações }
+  /v1/tenant/crm/automations:
+    put:
+      operationId: saveAutomation
+      x-koovela-action: crm.automation.manage
+      responses:
+        '200': { description: Automação salva }
+  /v1/admin/crm/quota:
+    get:
+      operationId: tenantQuotaUsage
+      x-koovela-action: admin.crm.read
+      parameters: [ { name: tenant_id, in: query, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Uso do mês por canal, excedente e histórico }
+  /v1/admin/crm/tenants/{tenant_id}/review:
+    post:
+      operationId: reviewPausedTenant
+      x-koovela-action: admin.crm.review
+      parameters: [ { name: tenant_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [decision, reason], properties: { decision: { type: string, enum: [release, keep_paused] }, reason: { type: string } } }
+      responses:
+        '200': { description: Decidido (auditado) }

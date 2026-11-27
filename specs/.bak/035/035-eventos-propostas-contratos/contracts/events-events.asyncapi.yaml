@@ -1,0 +1,52 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela — eventos de domínio de propostas, contratos e sinal (spec 035)
+  version: 1.0.0
+  description: >
+    Outbox, idempotentes por id + transição. Nenhum evento leva CPF, local do evento, IP ou aparelho.
+    Consumidores: notifications (011), projections (consumer_events_index), reviews (016), bi (023), fiscal (017 via payments).
+defaultContentType: application/json
+channels:
+  quotesEvents:
+    address: quotes.events
+    messages:
+      proposal: { $ref: '#/components/messages/ProposalLifecycle' }
+      dateHold: { $ref: '#/components/messages/DateHoldLifecycle' }
+      contract: { $ref: '#/components/messages/ContractLifecycle' }
+  paymentsEvents:
+    address: payments.events
+    messages:
+      installment: { $ref: '#/components/messages/InstallmentLifecycle' }
+operations:
+  publishQuotes: { action: send, channel: { $ref: '#/channels/quotesEvents' } }
+  publishPayments: { action: send, channel: { $ref: '#/channels/paymentsEvents' } }
+components:
+  messages:
+    ProposalLifecycle:
+      name: quotes.proposal.{sent|accepted|expired|declined}.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data: { type: object, properties: { proposal_id: { type: string, format: uuid }, request_id: { type: string, format: uuid }, consumer_id: { type: string, format: uuid }, version: { type: integer }, total_cents: { type: integer }, deposit_cents: { type: integer }, valid_until: { type: string, format: date-time } } }
+    DateHoldLifecycle:
+      name: quotes.date_hold.{created|released|confirmed}.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data: { type: object, properties: { hold_id: { type: string, format: uuid }, proposal_id: { type: string, format: uuid }, scope_kind: { type: string }, scope_id: { type: string, format: uuid }, dates: { type: array, items: { type: object } }, reason: { type: [string, 'null'] } } }
+    ContractLifecycle:
+      name: quotes.contract.{signed|amended|cancelled|fulfilled}.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data: { type: object, properties: { contract_id: { type: string, format: uuid }, consumer_id: { type: string, format: uuid }, state: { type: string }, total_cents: { type: integer }, refund_cents: { type: [integer, 'null'] }, cancelled_by: { type: [string, 'null'], enum: [consumer, vendor, null] }, pdf_sha256: { type: string } } }
+    InstallmentLifecycle:
+      name: payments.event_installment.{paid|overdue|refunded}.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data: { type: object, properties: { installment_id: { type: string, format: uuid }, contract_id: { type: string, format: uuid }, kind: { type: string, enum: [deposit, balance] }, amount_cents: { type: integer }, payment_id: { type: [string, 'null'], format: uuid } } }

@@ -1,0 +1,10 @@
+[Unit]
+Description=Koovela: envio de binlogs
+After=koovela-data.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/0/15:binlog-ship.sh
+Nice=10
+IOSchedulingClass=idle

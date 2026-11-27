@@ -1,0 +1,41 @@
+# Alertas dos processos (REQ-FND-045). Todo alerta tem severity, environment e runbook (data-model §1.6).
+groups:
+  - name: platform
+    rules:
+      - alert: ServiceUnhealthy
+        expr: max by (service) (traefik_service_server_up{service=~"(gateway|consumer-web|tenant-web|admin-web)@file"}) == 0
+        for: 2m
+        labels: { severity: critical, environment: '{{ $externalLabels.environment }}' }
+        annotations:
+          summary: '{{ $labels.service }} sem saúde há 2 min'
+          runbook: docs/ops/runbooks/alertas/service-unhealthy.md
+      - alert: HighErrorRate
+        expr: |
+          sum by (service_name) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[5m]))
+            / sum by (service_name) (rate(http_server_request_duration_seconds_count[5m])) > 0.05
+        for: 5m
+        labels: { severity: critical, environment: '{{ $externalLabels.environment }}' }
+        annotations:
+          summary: '{{ $labels.service_name }}: mais de 5% de respostas 5xx'
+          runbook: docs/ops/runbooks/alertas/high-error-rate.md
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95, sum by (service_name, le) (rate(http_server_request_duration_seconds_bucket[10m]))) > 0.5
+        for: 10m
+        labels: { severity: warning, environment: '{{ $externalLabels.environment }}' }
+        annotations:
+          summary: '{{ $labels.service_name }}: p95 acima de 500 ms (CONST 6)'
+          runbook: docs/ops/runbooks/alertas/high-latency.md
+      - alert: DeadLetterGrowing
+        expr: sum by (queue) (rabbitmq_detailed_queue_messages{queue=~".*\\.dlq"}) > 0 and sum by (queue) (delta(rabbitmq_detailed_queue_messages{queue=~".*\\.dlq"}[15m])) > 0
+        for: 5m
+        labels: { severity: warning, environment: '{{ $externalLabels.environment }}' }
+        annotations:
+          summary: 'DLQ {{ $labels.queue }} crescendo'
+          runbook: docs/ops/runbooks/alertas/dead-letter-growing.md
+      - alert: DeployFailed
+        expr: koovela_deploy_last_status == 0
+        labels: { severity: critical, environment: '{{ $externalLabels.environment }}' }
+        annotations:
+          summary: 'último deploy falhou ({{ $labels.version }})'
+          runbook: docs/ops/runbooks/alertas/deploy-failed.md

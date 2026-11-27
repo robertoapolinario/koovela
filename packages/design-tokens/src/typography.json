@@ -1,0 +1,119 @@
+{
+  "$description": "Tipografia DM Sans (data-model §3.2). Pesos e alturas de linha a conferir nos estilos de texto do Figma.",
+  "font": {
+    "family": {
+      "$type": "fontFamily",
+      "base": {
+        "$value": [
+          "DM Sans",
+          "system-ui",
+          "-apple-system",
+          "Segoe UI",
+          "Roboto",
+          "sans-serif"
+        ]
+      }
+    },
+    "display": {
+      "$type": "typography",
+      "$value": {
+        "fontFamily": "{font.family.base}",
+        "fontSize": "44px",
+        "fontWeight": 700,
+        "lineHeight": 1.15,
+        "letterSpacing": "-0.5px"
+      }
+    },
+    "title": {
+      "$type": "typography",
+      "1": {
+        "$value": {
+          "fontFamily": "{font.family.base}",
+          "fontSize": "32px",
+          "fontWeight": 700,
+          "lineHeight": 1.2,
+          "letterSpacing": "-0.25px"
+        }
+      },
+      "2": {
+        "$value": {
+          "fontFamily": "{font.family.base}",
+          "fontSize": "24px",
+          "fontWeight": 700,
+          "lineHeight": 1.25,
+          "letterSpacing": "0px"
+        }
+      },
+      "3": {
+        "$value": {
+          "fontFamily": "{font.family.base}",
+          "fontSize": "18px",
+          "fontWeight": 600,
+          "lineHeight": 1.3,
+          "letterSpacing": "0px"
+        }
+      }
+    },
+    "body": {
+      "$type": "typography",
+      "DEFAULT": {
+        "$value": {
+          "fontFamily": "{font.family.base}",
+          "fontSize": "15px",
+          "fontWeight": 400,
+          "lineHeight": 1.5,
+          "letterSpacing": "0px"
+        }
+      },
+      "strong": {
+        "$value": {
+          "fontFamily": "{font.family.base}",
+          "fontSize": "15px",
+          "fontWeight": 600,
+          "lineHeight": 1.5,
+          "letterSpacing": "0px"
+        }
+      }
+    },
+    "small": {
+      "$type": "typography",
+      "$value": {
+        "fontFamily": "{font.family.base}",
+        "fontSize": "13px",
+        "fontWeight": 400,
+        "lineHeight": 1.45,
+        "letterSpacing": "0px"
+      }
+    },
+    "caption": {
+      "$type": "typography",
+      "$value": {
+        "fontFamily": "{font.family.base}",
+        "fontSize": "12px",
+        "fontWeight": 500,
+        "lineHeight": 1.4,
+        "letterSpacing": "0.2px"
+      }
+    },
+    "button": {
+      "$type": "typography",
+      "$value": {
+        "fontFamily": "{font.family.base}",
+        "fontSize": "15px",
+        "fontWeight": 600,
+        "lineHeight": 1.2,
+        "letterSpacing": "0.1px"
+      }
+    },
+    "number": {
+      "$type": "typography",
+      "$value": {
+        "fontFamily": "{font.family.base}",
+        "fontSize": "28px",
+        "fontWeight": 700,
+        "lineHeight": 1.1,
+        "letterSpacing": "-0.25px"
+      }
+    }
+  }
+}

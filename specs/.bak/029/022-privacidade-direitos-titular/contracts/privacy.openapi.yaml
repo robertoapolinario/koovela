@@ -1,0 +1,164 @@
+openapi: 3.1.0
+info:
+  title: Koovela Privacy — direitos do titular, retenção, incidentes
+  version: 1.0.0
+  description: Spec 022. OTP em pedidos e downloads; x-koovela-action em toda operação.
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/consumer/privacy/overview:
+    get:
+      operationId: privacyOverview
+      x-koovela-action: consumer.privacy.read
+      responses:
+        '200': { description: Confirmação de tratamento, categorias, estabelecimentos com dados, compartilhamentos e link da política }
+  /v1/consumer/privacy/requests:
+    get:
+      operationId: listMyPrivacyRequests
+      x-koovela-action: consumer.privacy.read
+      responses:
+        '200': { description: Pedidos com prazo e estado }
+    post:
+      operationId: createPrivacyRequest
+      x-koovela-action: consumer.privacy.request
+      parameters: [ { name: Idempotency-Key, in: header, required: true, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, otp_code]
+              properties:
+                kind: { type: string, enum: [export, erasure, partial_erasure, correction] }
+                business_ids: { type: array, items: { type: string, format: uuid } }
+                correction: { type: object, properties: { field: { type: string }, value: { type: string } } }
+                otp_code: { type: string }
+      responses:
+        '202': { description: Recebido; prazo informado }
+  /v1/consumer/privacy/erasure-preview:
+    get:
+      operationId: erasurePreview
+      x-koovela-action: consumer.privacy.read
+      parameters: [ { name: business_ids, in: query, schema: { type: array, items: { type: string, format: uuid } } } ]
+      responses:
+        '200': { description: O que será apagado, o que fica bloqueado por lei e até quando, efeitos em agendamentos, saldos e pontos }
+  /v1/consumer/privacy/requests/{request_id}/download:
+    post:
+      operationId: downloadExport
+      x-koovela-action: consumer.privacy.download
+      parameters: [ { name: request_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [otp_code], properties: { otp_code: { type: string } } }
+      responses:
+        '200': { description: URL assinada (curta) do pacote; expira em 7 dias }
+        '410': { description: privacy.export_expired }
+  /v1/consumer/privacy/consents:
+    get:
+      operationId: listMyConsents
+      x-koovela-action: consumer.consent.read
+      responses:
+        '200': { description: Todos os consentimentos com estabelecimento, data e versão }
+  /v1/consumer/privacy/consents/{consent_ref}/revoke:
+    post:
+      operationId: revokeConsent
+      x-koovela-action: consumer.consent.revoke
+      parameters: [ { name: consent_ref, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '202': { description: Revogação enviada ao domínio dono (efeito ≤ 1 min) }
+  /v1/tenant/privacy/requests:
+    get:
+      operationId: listBusinessTasks
+      x-koovela-action: privacy.business_task.read
+      responses:
+        '200': { description: Pedidos de titulares e vencimentos de retenção do estabelecimento, com prazos }
+  /v1/tenant/privacy/requests/{task_id}/decision:
+    post:
+      operationId: decideBusinessTask
+      x-koovela-action: privacy.business_task.decide
+      parameters: [ { name: task_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [erase, retain, apply_correction] }
+                retention_basis: { type: string, description: Obrigatória com retain (obrigação legal) }
+                retention_until: { type: string, format: date }
+      responses:
+        '200': { description: Aplicado; titular informado da base legal quando há guarda }
+  /v1/tenant/privacy/retention:
+    put:
+      operationId: extendRetention
+      x-koovela-action: privacy.retention.extend
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category, period, basis]
+              properties:
+                category: { type: string }
+                period: { type: string }
+                basis: { type: string }
+      responses:
+        '200': { description: Prazo aumentado (só categorias permitidas; registrado) }
+        '422': { description: privacy.category_not_extendable }
+  /v1/tenant/privacy/export:
+    post:
+      operationId: requestTenantExport
+      x-koovela-action: privacy.tenant_export
+      responses:
+        '202': { description: Só Proprietário, step-up; pacote completo (inclui anotações), cifrado, auditado }
+  /v1/admin/privacy/queue:
+    get:
+      operationId: dpoQueue
+      x-koovela-action: admin.privacy.read
+      responses:
+        '200': { description: Fila do Encarregado com prazos e responsáveis }
+  /v1/admin/privacy/email-requests:
+    post:
+      operationId: registerEmailRequest
+      x-koovela-action: admin.privacy.intake
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [kind, phone_e164], properties: { kind: { type: string }, phone_e164: { type: string } } }
+      responses:
+        '202': { description: Verificação de identidade por OTP enviada; depois segue o fluxo normal }
+  /v1/admin/privacy/retention-rules:
+    put:
+      operationId: updateRetentionRules
+      x-koovela-action: admin.privacy.retention
+      responses:
+        '200': { description: Nova versão da tabela (auditada) }
+  /v1/admin/privacy/incidents:
+    post:
+      operationId: registerIncident
+      x-koovela-action: admin.privacy.incident
+      responses:
+        '201': { description: Registrado; com risco relevante gera lista de afetados e rascunhos }
+  /v1/internal/privacy/holder/{holder_consumer_id}/{op}:
+    post:
+      operationId: holderPortCall
+      x-koovela-action: internal.privacy.holder_port
+      summary: Forma do contrato HolderDataPort que cada domínio implementa (describe, export, erase, restrictions)
+      parameters:
+        - { name: holder_consumer_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: op, in: path, required: true, schema: { type: string, enum: [describe, export, erase, restrictions] } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenant_ids: { type: array, items: { type: string, format: uuid } }
+                mode: { type: string, enum: [delete, anonymize, block] }
+                request_id: { type: string, format: uuid }
+      responses:
+        '202': { description: Passo idempotente por (request_id, domínio, tenant); resultado por evento }

@@ -1,0 +1,28 @@
+# Alerta "último teste de restauração com mais de 35 dias" e falhas de backup (T081).
+rule_files: [../backup.yml]
+evaluation_interval: 1h
+tests:
+  - interval: 1h
+    external_labels: { environment: production }
+    input_series:
+      # último teste de restauração em t=0 (epoch 0); avaliação aos 36 dias
+      - series: 'koovela_restore_test_last_timestamp_seconds'
+        values: '0x900'
+      - series: 'koovela_backup_last_status{kind="daily"}'
+        values: '1 1 0'
+      - series: 'koovela_backup_last_success_timestamp_seconds{kind="daily"}'
+        values: '0 3600 3600'
+    alert_rule_test:
+      - eval_time: 34d
+        alertname: RestoreTestStale
+        exp_alerts: []
+      - eval_time: 36d
+        alertname: RestoreTestStale
+        exp_alerts:
+          - exp_labels: { severity: warning, environment: production }
+            exp_annotations: { summary: 'último teste de restauração com mais de 35 dias', runbook: docs/ops/runbooks/alertas/restore-test-stale.md }
+      - eval_time: 2h
+        alertname: BackupFailed
+        exp_alerts:
+          - exp_labels: { severity: critical, environment: production, kind: daily }
+            exp_annotations: { summary: 'backup diário falhou ou não roda há mais de 26 h', runbook: docs/ops/runbooks/alertas/backup-failed.md }

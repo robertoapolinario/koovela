@@ -1,0 +1,24 @@
+{
+  "name": "@koovela/runtime-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run --passWithNoTests --exclude '**/*.integration.test.ts' --exclude '**/*.int.test.ts' --exclude '**/e2e/**' --exclude '**/node_modules/**'"
+  },
+  "dependencies": {
+    "@koovela/platform-config": "workspace:*",
+    "@koovela/platform-logger": "workspace:*",
+    "@koovela/platform-otel": "workspace:*",
+    "@koovela/platform-runtime": "workspace:*",
+    "@koovela/platform-tenant-context": "workspace:*",
+    "@koovela/svc-platform": "workspace:*",
+    "fastify": "5.12.8",
+    "kysely": "0.29.9",
+    "@koovela/platform-outbox": "workspace:*",
+    "@koovela/platform-errors": "workspace:*"
+  }
+}

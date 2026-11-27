@@ -1,0 +1,163 @@
+openapi: 3.1.0
+info:
+  title: Koovela Fiscal — NFS-e
+  version: 1.0.0
+  description: Spec 017. x-koovela-action em toda operação. A opção issuer_mode=koovela só existe com a flag fiscal.koovela_issuer.
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/tenant/fiscal/settings:
+    get:
+      operationId: getFiscalSettings
+      x-koovela-action: fiscal.read
+      responses:
+        '200': { description: Modo, emissão automática, pacotes, pendências de configuração }
+    put:
+      operationId: setFiscalSettings
+      x-koovela-action: fiscal.configure
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                issuer_mode: { type: string, enum: [own, koovela] }
+                auto_emit: { type: boolean }
+                package_emission: { type: string, enum: [per_session, on_sale], default: per_session }
+      responses:
+        '200': { description: Salvo (auditado) }
+        '403': { description: fiscal.koovela_issuer_disabled }
+  /v1/tenant/fiscal/issuers:
+    post:
+      operationId: upsertIssuer
+      x-koovela-action: fiscal.configure
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, document, municipality_ibge]
+              properties:
+                kind: { type: string, enum: [company, mei, individual_no_cnpj] }
+                document: { type: string }
+                municipal_registration: { type: string }
+                tax_regime: { type: string }
+                municipality_ibge: { type: string }
+                branch_ids: { type: array, items: { type: string, format: uuid } }
+      responses:
+        '200': { description: Emitente com provider resolvido pelo município (ou unsupported) }
+  /v1/tenant/fiscal/issuers/{issuer_id}/certificate:
+    put:
+      operationId: uploadCertificate
+      x-koovela-action: fiscal.certificate.manage
+      parameters: [ { name: issuer_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [pfx, password]
+              properties:
+                pfx: { type: string, format: binary }
+                password: { type: string, format: password, writeOnly: true }
+      responses:
+        '200': { description: Validado (documento e validade) e guardado cifrado; step-up exigido; auditado }
+        '422': { description: fiscal.certificate_invalid, fiscal.certificate_document_mismatch, fiscal.certificate_expired }
+    delete:
+      operationId: removeCertificate
+      x-koovela-action: fiscal.certificate.manage
+      parameters: [ { name: issuer_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '204': { description: Removido (step-up, auditado) }
+  /v1/tenant/fiscal/services/{item_id}:
+    put:
+      operationId: setServiceTax
+      x-koovela-action: fiscal.configure
+      parameters: [ { name: item_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                municipal_code: { type: string }
+                national_code: { type: string }
+                iss_rate_bps: { type: integer, minimum: 0, maximum: 10000 }
+                iss_withheld: { type: boolean }
+      responses:
+        '200': { description: Salvo }
+  /v1/tenant/fiscal/invoices:
+    get:
+      operationId: listInvoices
+      x-koovela-action: fiscal.read
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+        - { name: branch_id, in: query, schema: { type: string, format: uuid } }
+        - { name: issuer_id, in: query, schema: { type: string, format: uuid } }
+        - { name: state, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Notas com totais de valor e ISS (P23) }
+    post:
+      operationId: emitManual
+      x-koovela-action: fiscal.emit
+      parameters: [ { name: Idempotency-Key, in: header, required: true, schema: { type: string } } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sources]
+              properties:
+                sources: { type: array, items: { type: object, properties: { kind: { type: string }, id: { type: string, format: uuid } } } }
+      responses:
+        '202': { description: Pedidos criados (lote); fonte com nota válida é ignorada }
+  /v1/tenant/fiscal/invoices/{invoice_id}:
+    get:
+      operationId: getInvoice
+      x-koovela-action: fiscal.read
+      parameters: [ { name: invoice_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Detalhe com agendamento, pagamento, tentativas, link de consulta pública }
+  /v1/tenant/fiscal/invoices/{invoice_id}/cancel:
+    post:
+      operationId: cancelInvoice
+      x-koovela-action: fiscal.cancel
+      parameters: [ { name: invoice_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [reason], properties: { reason: { type: string } } }
+      responses:
+        '200': { description: Cancelada (auditado) }
+        '409': { description: fiscal.cancel_window_passed }
+  /v1/tenant/fiscal/pending:
+    get:
+      operationId: listPending
+      x-koovela-action: fiscal.read
+      responses:
+        '200': { description: Pendências fiscais e concluídos pagos sem nota }
+  /v1/tenant/fiscal/exports/{month}:
+    get:
+      operationId: monthlyExport
+      x-koovela-action: fiscal.export
+      parameters:
+        - { name: month, in: path, required: true, schema: { type: string, pattern: '^[0-9]{4}-[0-9]{2}$' } }
+        - { name: format, in: query, required: true, schema: { type: string, enum: [xlsx, zip] } }
+      responses:
+        '200': { description: Planilha ou zip com XMLs e PDFs autorizados e cancelados }
+  /v1/consumer/appointments/{appointment_id}/invoice:
+    get:
+      operationId: getMyInvoice
+      x-koovela-action: consumer.invoice.read
+      parameters: [ { name: appointment_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: PDF, número e link público; recibo não fiscal quando emitente PF sem CNPJ }
+  /v1/admin/fiscal/health:
+    get:
+      operationId: fiscalHealth
+      x-koovela-action: admin.fiscal.read
+      responses:
+        '200': { description: Falhas por município e certificados a vencer (sem dados do consumidor) }

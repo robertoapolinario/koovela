@@ -1,0 +1,29 @@
+{
+  "name": "@koovela/ui-native",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.tsx",
+  "exports": {
+    ".": "./src/index.tsx"
+  },
+  "scripts": {
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@koovela/contracts": "workspace:*",
+    "@koovela/design-tokens": "workspace:*",
+    "@koovela/i18n": "workspace:*",
+    "@koovela/sdk": "workspace:*",
+    "@tanstack/react-query": "5.108.4"
+  },
+  "peerDependencies": {
+    "react": "19.3.0",
+    "react-native": "0.88.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.3",
+    "react": "19.3.0",
+    "react-native": "0.88.1"
+  }
+}

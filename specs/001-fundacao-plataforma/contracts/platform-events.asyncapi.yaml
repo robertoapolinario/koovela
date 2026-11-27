@@ -1,0 +1,215 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela — eventos da plataforma (spec 001)
+  version: 1.0.0
+  description: >
+    Envelope comum de eventos (CONST IX) e eventos operacionais da fundação.
+    Nesta spec os eventos `platform.*` são emitidos como registros estruturados
+    (Loki) e o `platform.example.pinged.v1` trafega no RabbitMQ para validar
+    outbox, DLQ e propagação de contexto. Nunca carregam PII em claro.
+defaultContentType: application/json
+servers:
+  local:
+    host: rabbitmq.koovela.localhost:5672
+    protocol: amqp
+channels:
+  platformExample:
+    address: platform.example
+    messages:
+      examplePinged:
+        $ref: '#/components/messages/ExamplePinged'
+  platformOps:
+    address: platform.ops
+    description: Canal lógico dos eventos operacionais (registros estruturados nesta spec).
+    messages:
+      releaseBuilt: { $ref: '#/components/messages/ReleaseBuilt' }
+      deploymentStarted: { $ref: '#/components/messages/DeploymentChanged' }
+      deploymentSucceeded: { $ref: '#/components/messages/DeploymentChanged' }
+      deploymentFailed: { $ref: '#/components/messages/DeploymentChanged' }
+      deploymentPromoted: { $ref: '#/components/messages/DeploymentChanged' }
+      deploymentRolledBack: { $ref: '#/components/messages/DeploymentChanged' }
+      backupCompleted: { $ref: '#/components/messages/BackupChanged' }
+      backupFailed: { $ref: '#/components/messages/BackupChanged' }
+      restoreTestRecorded: { $ref: '#/components/messages/RestoreTestRecorded' }
+      secretRotated: { $ref: '#/components/messages/SecretRotated' }
+      alertFired: { $ref: '#/components/messages/AlertChanged' }
+      alertResolved: { $ref: '#/components/messages/AlertChanged' }
+  platformIncidents:
+    address: platform.incidents
+    description: Incidentes críticos resolvidos (MTTR) para o BI (spec 023). Só ids e tempos.
+    messages:
+      incidentResolved: { $ref: '#/components/messages/IncidentResolved' }
+operations:
+  publishExamplePinged:
+    action: send
+    channel: { $ref: '#/channels/platformExample' }
+  consumeExamplePinged:
+    action: receive
+    channel: { $ref: '#/channels/platformExample' }
+    description: Consumidor idempotente com DLQ `platform.example.dlq`.
+  publishIncidentResolved:
+    action: send
+    channel: { $ref: '#/channels/platformIncidents' }
+  emitPlatformOps:
+    action: send
+    channel: { $ref: '#/channels/platformOps' }
+components:
+  schemas:
+    Envelope:
+      type: object
+      required: [event_id, event_type, version, occurred_at, actor, correlation_id, data]
+      additionalProperties: false
+      properties:
+        event_id: { type: string, format: uuid, description: UUIDv7 }
+        event_type:
+          type: string
+          pattern: '^[a-z_]+\.[a-z_]+\.[a-z_]+\.v[0-9]+$'
+          description: '<domínio>.<entidade>.<fato>.v<N>'
+        version: { type: integer, minimum: 1 }
+        tenant_id: { type: [string, 'null'], format: uuid }
+        occurred_at: { type: string, format: date-time, description: UTC }
+        actor:
+          type: object
+          required: [type, id]
+          additionalProperties: false
+          properties:
+            type: { type: string, enum: [system, pipeline, sre, user] }
+            id: { type: string, description: Identificador técnico, nunca e-mail ou telefone }
+        correlation_id: { type: string, format: uuid }
+        data: { type: object }
+  messages:
+    ExamplePinged:
+      name: platform.example.pinged.v1
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              data:
+                type: object
+                required: [ping_id]
+                additionalProperties: false
+                properties:
+                  ping_id: { type: string, format: uuid }
+    ReleaseBuilt:
+      name: platform.release.built.v1
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              data:
+                type: object
+                required: [version, commit, images]
+                properties:
+                  version: { type: string }
+                  commit: { type: string }
+                  images:
+                    type: array
+                    items:
+                      type: object
+                      required: [service, digest]
+                      properties:
+                        service: { type: string }
+                        digest: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
+    DeploymentChanged:
+      name: platform.deployment.changed.v1
+      summary: Usado por platform.deployment.{started,succeeded,failed,promoted,rolled_back}.v1
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              data:
+                type: object
+                required: [deploy_id, environment, version, kind, status]
+                properties:
+                  deploy_id: { type: string, format: uuid }
+                  environment: { type: string, enum: [staging, production] }
+                  version: { type: string }
+                  previous_version: { type: [string, 'null'] }
+                  kind: { type: string, enum: [deploy, promotion, rollback] }
+                  status: { type: string, enum: [started, verifying_health, succeeded, failed] }
+                  approved_by: { type: [string, 'null'] }
+    BackupChanged:
+      name: platform.backup.changed.v1
+      summary: Usado por platform.backup.{completed,failed}.v1
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              data:
+                type: object
+                required: [backup_id, kind, status, destinations]
+                properties:
+                  backup_id: { type: string }
+                  kind: { type: string, enum: [daily, binlog, monthly] }
+                  status: { type: string, enum: [completed, failed] }
+                  size_bytes: { type: integer, minimum: 0 }
+                  destinations:
+                    type: array
+                    items: { type: string, enum: [oci-object-storage, cloudflare-r2, own-equipment] }
+    RestoreTestRecorded:
+      name: platform.restore_test.recorded.v1
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              data:
+                type: object
+                required: [restored_point, duration_minutes, result]
+                properties:
+                  restored_point: { type: string, format: date-time }
+                  duration_minutes: { type: integer, minimum: 0 }
+                  result: { type: string, enum: [success, failure] }
+    SecretRotated:
+      name: platform.secret.rotated.v1
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              data:
+                type: object
+                required: [reason, secret_names]
+                properties:
+                  reason: { type: string, enum: [offboarding, suspected_leak, scheduled] }
+                  secret_names: { type: array, items: { type: string } }
+    AlertChanged:
+      name: platform.alert.changed.v1
+      summary: Usado por platform.alert.{fired,resolved}.v1
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              data:
+                type: object
+                required: [alert, severity, environment, state]
+                properties:
+                  alert: { type: string }
+                  severity: { type: string, enum: [critical, warning] }
+                  environment: { type: string, enum: [staging, production] }
+                  state: { type: string, enum: [fired, resolved] }
+                  runbook: { type: string }
+    IncidentResolved:
+      name: platform.incident.resolved.v1
+      summary: Incidente crítico encerrado (alerta resolvido no Alertmanager)
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              data:
+                type: object
+                required: [incident_id, severity, started_at, resolved_at, duration_seconds]
+                additionalProperties: false
+                properties:
+                  incident_id: { type: string, format: uuid }
+                  severity: { type: string, enum: [critical] }
+                  service: { type: [string, 'null'], description: Nome técnico do serviço, nunca dado pessoal }
+                  started_at: { type: string, format: date-time }
+                  resolved_at: { type: string, format: date-time }
+                  duration_seconds: { type: integer, minimum: 0 }

@@ -1,0 +1,16 @@
+# Rotas do host de aplicação. O cloudflared entrega tudo em traefik:8000; o Host vem da Cloudflare.
+# `{env}` = '' em produção e '.staging' em staging (ver Transform Rules da borda).
+http:
+  routers:
+    public: { rule: 'Host(`koovela.com`) || Host(`staging.koovela.com`)', service: consumer-web }
+    app: { rule: 'HostRegexp(`^app(\.staging)?\.koovela\.com$`)', service: consumer-web }
+    painel: { rule: 'HostRegexp(`^painel(\.staging)?\.koovela\.com$`)', service: tenant-web }
+    admin: { rule: 'HostRegexp(`^admin(\.staging)?\.koovela\.com$`)', service: admin-web }
+    api: { rule: 'HostRegexp(`^api(\.staging)?\.koovela\.com$`)', service: gateway }
+    bi: { rule: 'HostRegexp(`^bi(\.staging)?\.koovela\.com$`)', service: bi-placeholder }
+  services:
+    consumer-web: { loadBalancer: { servers: [{ url: 'http://consumer-web:8080' }], healthCheck: { path: /healthz, interval: 10s, timeout: 3s } } }
+    tenant-web: { loadBalancer: { servers: [{ url: 'http://tenant-web:8080' }], healthCheck: { path: /healthz, interval: 10s, timeout: 3s } } }
+    admin-web: { loadBalancer: { servers: [{ url: 'http://admin-web:8080' }], healthCheck: { path: /healthz, interval: 10s, timeout: 3s } } }
+    gateway: { loadBalancer: { servers: [{ url: 'http://gateway:8080' }], healthCheck: { path: /livez, interval: 10s, timeout: 3s } } }
+    bi-placeholder: { loadBalancer: { servers: [{ url: 'http://bi-placeholder:8080' }] } }

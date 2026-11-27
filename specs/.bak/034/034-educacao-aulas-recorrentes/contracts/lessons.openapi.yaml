@@ -1,0 +1,201 @@
+openapi: 3.1.0
+info:
+  title: Koovela Scheduling — aulas avulsas recorrentes (spec 034)
+  version: 1.0.0
+  description: >
+    Spec 034. x-koovela-action em toda operação; tenant resolvido no gateway.
+    Extensões retrocompatíveis da 013 (kind lesson, subject_id, charge_per_lesson, item_kind class_group)
+    e da 026 (inscrição materializada por série). Gestão, pausa e encerramento usam a API da 013.
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/tenant/lessons/settings:
+    get:
+      operationId: listLessonSettings
+      x-koovela-action: lessons.settings.read
+      responses:
+        '200': { description: Configurações vigentes por serviço e turma }
+    post:
+      operationId: setLessonSettings
+      x-koovela-action: lessons.settings.write
+      requestBody:
+        content: { application/json: { schema: { $ref: '#/components/schemas/LessonSettings' } } }
+      responses:
+        '201': { description: Nova versão }
+        '422': { description: 'lessons.vertical_not_allowed | lessons.unknown_field (schema fechado)' }
+  /v1/tenant/branches/{branch_id}/recesses:
+    get:
+      operationId: listRecesses
+      x-koovela-action: lessons.recess.read
+      parameters:
+        - { name: branch_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Recessos da filial }
+    post:
+      operationId: declareRecess
+      x-koovela-action: lessons.recess.write
+      parameters:
+        - { name: branch_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [starts_on, ends_on, reason], properties: { starts_on: { type: string, format: date }, ends_on: { type: string, format: date }, reason: { type: string, maxLength: 200 } } }
+      responses:
+        '201':
+          description: Recesso declarado; ocorrências puladas e aulas de turma canceladas sem custo
+          content: { application/json: { schema: { type: object, properties: { recess_id: { type: string, format: uuid }, affected_occurrences: { type: integer }, affected_sessions: { type: integer } } } } }
+  /v1/public/branches/{branch_id}/lessons/offers:
+    get:
+      operationId: listLessonOffers
+      x-koovela-action: public.lessons.read
+      parameters:
+        - { name: branch_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Serviços e turmas com aula recorrente ativa, frequências e formas de pagamento }
+  /v1/consumer/lesson-series/preview:
+    post:
+      operationId: previewLessonSeries
+      x-koovela-action: consumer.lessons.preview
+      requestBody:
+        content: { application/json: { schema: { $ref: '#/components/schemas/LessonSeriesInput' } } }
+      responses:
+        '200':
+          description: Próximas ocorrências com conflitos e texto do aviso vigente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  occurrences:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        planned_start: { type: string, format: date-time }
+                        status: { type: string, enum: [ok, conflict] }
+                        conflict_reason: { type: [string, 'null'], enum: [holiday, recess, instructor_unavailable, occupied, full, null] }
+                  terms: { type: object, properties: { version: { type: string }, text: { type: string } } }
+                  price_per_lesson_cents: { type: [integer, 'null'] }
+  /v1/consumer/lesson-series:
+    post:
+      operationId: createLessonSeries
+      x-koovela-action: consumer.lessons.create
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/LessonSeriesInput'
+                - type: object
+                  required: [terms_version, payment_mode]
+                  properties:
+                    terms_version: { type: string, description: Aceite do aviso "sem matrícula; falta não tem reposição" }
+                    payment_mode: { type: string, enum: [charge_per_lesson, package] }
+                    saved_card_id: { type: [string, 'null'] }
+                    recurring_charge_consent: { type: boolean }
+                    package_account_id: { type: [string, 'null'] }
+      responses:
+        '201': { description: 'Série kind=lesson criada (013); 4 ocorrências materializadas (agendamentos ou inscrições)' }
+        '409': { description: 'scheduling.series_limit_reached | scheduling.series_overlap (por atendido)' }
+        '422': { description: 'lessons.terms_not_accepted | lessons.frequency_not_allowed | lessons.payment_mode_not_allowed | subjects.not_guardian' }
+  /v1/consumer/lesson-records:
+    get:
+      operationId: listMyLessonRecords
+      x-koovela-action: consumer.lessons.records.read
+      parameters:
+        - { name: series_id, in: query, schema: { type: string, format: uuid } }
+        - { name: subject_id, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Registros do próprio aluno ou dos dependentes do responsável
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/LessonRecord' } }
+  /v1/pro/lessons/{occurrence_ref}/record:
+    put:
+      operationId: upsertLessonRecord
+      x-koovela-action: lessons.record.write
+      description: occurrence_ref = appointment:<id> | enrollment:<id>; editável por 24 h
+      parameters:
+        - { name: occurrence_ref, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [body], properties: { body: { type: string, maxLength: 1000 } } }
+      responses:
+        '200': { description: Salvo }
+        '409': { description: 'lessons.record_closed' }
+  /v1/pro/class-sessions/{session_id}/records:
+    post:
+      operationId: applyRecordToAll
+      x-koovela-action: lessons.record.write
+      description: '"Aplicar a todos": copia o texto para o registro de cada aluno inscrito presente'
+      parameters:
+        - { name: session_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [body], properties: { body: { type: string, maxLength: 1000 } } }
+      responses:
+        '200': { description: Registros criados, um por aluno }
+  /v1/pro/lessons/{occurrence_ref}/record/read:
+    get:
+      operationId: readLessonRecord
+      x-koovela-action: lessons.record.read
+      description: Só o instrutor autor e o Proprietário
+      parameters:
+        - { name: occurrence_ref, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { content: { application/json: { schema: { $ref: '#/components/schemas/LessonRecord' } } }, description: Registro }
+        '403': { description: 'lessons.record_forbidden' }
+  /v1/tenant/lessons/{occurrence_ref}/offer-other-time:
+    post:
+      operationId: offerOtherTime
+      x-koovela-action: lessons.offer_other_time
+      description: Após cancelamento pela escola; agendamento avulso na mesma semana (não é reposição)
+      parameters:
+        - { name: occurrence_ref, in: path, required: true, schema: { type: string } }
+      responses:
+        '202': { description: Link enviado ao consumidor (011) }
+        '409': { description: 'lessons.not_cancelled_by_business' }
+components:
+  schemas:
+    LessonSettings:
+      type: object
+      additionalProperties: false
+      required: [target_kind, target_id, enabled, frequencies, payment_modes]
+      properties:
+        target_kind: { type: string, enum: [service, class_group] }
+        target_id: { type: string, format: uuid }
+        enabled: { type: boolean }
+        frequencies: { type: array, minItems: 1, items: { type: string, enum: [weekly, every_2_weeks] } }
+        ends_on: { type: [string, 'null'], format: date }
+        payment_modes: { type: array, minItems: 1, items: { type: string, enum: [charge_per_lesson, package] } }
+    LessonSeriesInput:
+      type: object
+      required: [branch_id, target_kind, target_id, frequency, starts_on]
+      properties:
+        branch_id: { type: string, format: uuid }
+        target_kind: { type: string, enum: [service, class_group] }
+        target_id: { type: string, format: uuid }
+        instructor_id: { type: [string, 'null'], format: uuid, description: Só individual }
+        weekday: { type: integer, minimum: 1, maximum: 7 }
+        local_time: { type: string, pattern: '^[0-2][0-9]:[0-5][0-9]$' }
+        frequency: { type: string, enum: [weekly, every_2_weeks] }
+        starts_on: { type: string, format: date }
+        subject_id: { type: [string, 'null'], format: uuid, description: Dependente (025); null = o próprio }
+    LessonRecord:
+      type: object
+      properties:
+        record_id: { type: string, format: uuid }
+        lesson_date: { type: string, format: date }
+        service_name: { type: string }
+        instructor_display_name: { type: string }
+        subject_display_name: { type: string }
+        body: { type: string }
+        editable_until: { type: string, format: date-time }

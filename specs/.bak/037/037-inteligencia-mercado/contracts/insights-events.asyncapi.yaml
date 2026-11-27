@@ -1,0 +1,52 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Insights — eventos do benchmark (spec 037)
+  version: 1.0.0
+  description: >
+    Publicados pelo bi/ (insights) e pelo core (participação). Sem valores individuais nem identificação de
+    estabelecimentos contribuintes. Consumidores: back-office (021), observabilidade, auditoria (004).
+defaultContentType: application/json
+channels:
+  insightsEvents:
+    address: insights.events
+    messages:
+      calculated: { $ref: '#/components/messages/BenchmarkCalculated' }
+      cutBlocked: { $ref: '#/components/messages/CutBlocked' }
+      participationChanged: { $ref: '#/components/messages/ParticipationChanged' }
+operations:
+  publishInsights:
+    action: send
+    channel: { $ref: '#/channels/insightsEvents' }
+components:
+  messages:
+    BenchmarkCalculated:
+      name: insights.benchmark.calculated.v1
+      payload:
+        type: object
+        properties:
+          run_id: { type: string }
+          config_version_id: { type: string, format: uuid }
+          period_end: { type: string, format: date }
+          published_cuts: { type: integer }
+          blocked_cuts: { type: integer }
+          reid_test_passed: { type: boolean }
+    CutBlocked:
+      name: insights.benchmark.cut_blocked.v1
+      payload:
+        type: object
+        properties:
+          run_id: { type: string }
+          level: { type: string }
+          region_id: { type: string }
+          category: { type: string }
+          metric_code: { type: string }
+          reason: { type: string, enum: [below_minimum, dominance, complementary, temporal] }
+    ParticipationChanged:
+      name: insights.benchmark.participation_changed.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          business_id: { type: string, format: uuid }
+          state: { type: string, enum: ['on', 'off'] }
+          changed_at: { type: string, format: date-time }

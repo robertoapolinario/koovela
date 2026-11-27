@@ -1,0 +1,20 @@
+asyncapi: 3.0.0
+info: { title: t, version: 1.0.0 }
+operations:
+  send: { action: send, channel: { $ref: '#/channels/c' } }
+channels:
+  c:
+    address: c
+    messages:
+      m: { $ref: '#/components/messages/M' }
+components:
+  messages:
+    M:
+      name: x.y.z.v1
+      payload:
+        type: object
+        required: [a, b]
+        properties:
+          a: { type: string }
+          b: { type: integer }
+          s: { type: string, enum: [x, y] }

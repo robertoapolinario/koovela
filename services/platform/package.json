@@ -1,0 +1,32 @@
+{
+  "name": "@koovela/svc-platform",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src migrations",
+    "test": "vitest run --passWithNoTests --exclude '**/*.integration.test.ts' --exclude '**/*.int.test.ts' --exclude '**/e2e/**' --exclude '**/node_modules/**'",
+    "test:integration": "vitest run --config ../../vitest.integration.config.ts services/platform"
+  },
+  "dependencies": {
+    "@koovela/platform-outbox": "workspace:*",
+    "@koovela/platform-tenant-context": "workspace:*",
+    "fastify": "5.12.8",
+    "fastify-plugin": "6.0.1",
+    "kysely": "0.29.9",
+    "@koovela/platform-runtime": "workspace:*",
+    "@koovela/testing": "workspace:*",
+    "@koovela/platform-otel": "workspace:*",
+    "@koovela/platform-config": "workspace:*"
+  },
+  "devDependencies": {
+    "@koovela/migrations": "workspace:*",
+    "mysql2": "3.24.6",
+    "amqplib": "2.4.2",
+    "@types/amqplib": "2.2.1"
+  }
+}

@@ -1,0 +1,142 @@
+openapi: 3.1.0
+info:
+  title: Koovela Identity — atendidos (dependentes e pets)
+  version: 1.0.0
+  description: Spec 025. x-koovela-action em toda operação.
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/consumer/subjects:
+    get:
+      operationId: listMySubjects
+      x-koovela-action: consumer.subject.list
+      responses:
+        '200': { description: Atendidos do titular e dos que sou corresponsável }
+    post:
+      operationId: createSubject
+      x-koovela-action: consumer.subject.create
+      parameters: [ { name: Idempotency-Key, in: header, required: true, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/MinorInput'
+                - $ref: '#/components/schemas/AdultDependentInput'
+                - $ref: '#/components/schemas/PetInput'
+      responses:
+        '201': { description: Criado; adulto com celular recebe aviso com opção de recusa }
+        '409': { description: subject.limit_reached }
+        '422': { description: subject.declaration_required, subject.clinical_fields_not_allowed }
+  /v1/consumer/subjects/{subject_id}:
+    patch:
+      operationId: updateSubject
+      x-koovela-action: consumer.subject.update
+      parameters: [ { name: subject_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Vale para agendamentos futuros }
+    delete:
+      operationId: archiveSubject
+      x-koovela-action: consumer.subject.archive
+      parameters: [ { name: subject_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Arquivado }
+  /v1/consumer/subjects/{subject_id}/co-guardians:
+    post:
+      operationId: inviteCoGuardian
+      x-koovela-action: consumer.subject.invite_guardian
+      parameters: [ { name: subject_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [phone_e164], properties: { phone_e164: { type: string } } }
+      responses:
+        '202': { description: Convite enviado; aceite com OTP }
+  /v1/consumer/subject-invites/{invite_id}/accept:
+    post:
+      operationId: acceptCoGuardianInvite
+      x-koovela-action: consumer.subject.accept_invite
+      parameters: [ { name: invite_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [otp_code], properties: { otp_code: { type: string } } }
+      responses:
+        '200': { description: Corresponsável ativo }
+  /v1/public/subject-links/{token}/refuse:
+    post:
+      operationId: refuseDependentLink
+      x-koovela-action: public.subject.refuse_link
+      security: []
+      parameters: [ { name: token, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '200': { description: Vínculo desfeito e registrado; titular avisado }
+  /v1/consumer/subjects/{subject_id}/claim:
+    post:
+      operationId: claimOwnHistory
+      x-koovela-action: consumer.subject.claim
+      summary: Atendido maior de idade com conta própria assume o histórico
+      parameters: [ { name: subject_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Histórico transferido; titular mantém só passados sem anotações }
+  /v1/public/businesses/{slug}/services:
+    get:
+      operationId: listServicesForSubject
+      x-koovela-action: public.catalog.list
+      security: []
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: subject_kind, in: query, schema: { type: string, enum: [self, minor, adult_dependent, pet] } }
+        - { name: subject_age, in: query, schema: { type: integer } }
+        - { name: pet_species, in: query, schema: { type: string, enum: [dog, cat] } }
+        - { name: pet_size, in: query, schema: { type: string, enum: [P, M, G, GG] } }
+        - { name: pet_coat, in: query, schema: { type: string, enum: [short, medium, long, double] } }
+      responses:
+        '200': { description: Só serviços que aceitam o atendido; duração e preço por porte calculados }
+  /v1/tenant/subjects/{subject_id}:
+    get:
+      operationId: getSubjectRecord
+      x-koovela-action: records.subject.read
+      parameters: [ { name: subject_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Ficha (pet completo; menor só nome, idade, responsável) e histórico no negócio }
+components:
+  schemas:
+    Declaration:
+      type: object
+      required: [text_version, accepted]
+      properties:
+        text_version: { type: string }
+        accepted: { type: boolean, const: true }
+    MinorInput:
+      type: object
+      required: [kind, name, birth_date, declaration]
+      properties:
+        kind: { const: minor }
+        name: { type: string }
+        birth_date: { type: string, format: date }
+        declaration: { $ref: '#/components/schemas/Declaration' }
+    AdultDependentInput:
+      type: object
+      required: [kind, name, declaration]
+      properties:
+        kind: { const: adult_dependent }
+        name: { type: string }
+        birth_date: { type: string, format: date }
+        phone_e164: { type: string }
+        declaration: { $ref: '#/components/schemas/Declaration' }
+    PetInput:
+      type: object
+      required: [kind, name, species, size, coat]
+      additionalProperties: false
+      properties:
+        kind: { const: pet }
+        name: { type: string }
+        species: { type: string, enum: [dog, cat] }
+        breed: { type: string }
+        size: { type: string, enum: [P, M, G, GG] }
+        coat: { type: string, enum: [short, medium, long, double] }
+        birth_month: { type: string, pattern: '^[0-9]{4}-[0-9]{2}$' }
+        photo_media_id: { type: string, format: uuid }
+        handling_notes: { type: string, maxLength: 300 }

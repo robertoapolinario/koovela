@@ -1,0 +1,169 @@
+openapi: 3.1.0
+info:
+  title: Koovela Engagement — avaliações
+  version: 1.0.0
+  description: Spec 016. x-koovela-action em toda operação.
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/consumer/appointments/{appointment_id}/review:
+    post:
+      operationId: createReview
+      x-koovela-action: consumer.review.create
+      parameters:
+        - { name: appointment_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewInput' }
+      responses:
+        '201': { description: Recebida; publicação em 48 h (ou retida pela triagem, com aviso) }
+        '403': { description: review.staff_member, review.otp_required }
+        '409': { description: review.not_completed, review.already_reviewed, review.window_closed }
+    patch:
+      operationId: editReview
+      x-koovela-action: consumer.review.edit
+      parameters: [ { name: appointment_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewInput' }
+      responses:
+        '200': { description: Editada (até 14 dias; nova triagem) }
+    delete:
+      operationId: removeReview
+      x-koovela-action: consumer.review.remove
+      parameters: [ { name: appointment_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '204': { description: Removida pelo autor }
+  /v1/public/businesses/{slug}/reviews:
+    get:
+      operationId: listPublicReviews
+      x-koovela-action: public.review.list
+      security: []
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: branch_id, in: query, schema: { type: string, format: uuid } }
+        - { name: professional_id, in: query, schema: { type: string, format: uuid } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary: { $ref: '#/components/schemas/RatingSummary' }
+                  items: { type: array, items: { $ref: '#/components/schemas/PublicReview' } }
+                  next_cursor: { type: [string, 'null'] }
+          description: Só publicadas; vazio em saúde ou com a página desligada
+  /v1/internal/ratings:
+    get:
+      operationId: getRatingSummaries
+      x-koovela-action: internal.reviews.ratings.read
+      summary: Contrato para a vitrine (spec 024)
+      parameters:
+        - { name: scope, in: query, required: true, schema: { type: string, enum: [business, branch, professional] } }
+        - { name: ids, in: query, required: true, schema: { type: array, items: { type: string, format: uuid } } }
+      responses:
+        '200': { description: Média e contagem de 12 meses (sem texto) }
+  /v1/tenant/reviews:
+    get:
+      operationId: listTenantReviews
+      x-koovela-action: engagement.review.read
+      parameters:
+        - { name: branch_id, in: query, schema: { type: string, format: uuid } }
+        - { name: professional_id, in: query, schema: { type: string, format: uuid } }
+        - { name: rating_lte, in: query, schema: { type: integer } }
+        - { name: unanswered, in: query, schema: { type: boolean } }
+      responses:
+        '200': { description: Todas (inclui privadas e retidas), com resposta e denúncias (P22, K05) }
+  /v1/tenant/reviews/{review_id}/reply:
+    put:
+      operationId: replyToReview
+      x-koovela-action: engagement.review.reply
+      parameters: [ { name: review_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [body], properties: { body: { type: string, maxLength: 1000 } } }
+      responses:
+        '200': { description: Resposta criada ou editada (até 24 h); consumidor avisado }
+        '409': { description: review.reply_locked }
+  /v1/tenant/reviews/{review_id}/report:
+    post:
+      operationId: reportReview
+      x-koovela-action: engagement.review.report
+      parameters: [ { name: review_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, enum: [offensive, personal_data, health_data, unrelated, conflict_of_interest, spam] }
+                note: { type: string, maxLength: 500 }
+      responses:
+        '201': { description: Denúncia aberta (decisão em até 3 dias úteis; avaliação segue visível) }
+  /v1/tenant/reviews/settings:
+    put:
+      operationId: setReviewSettings
+      x-koovela-action: engagement.review.settings
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { show_reviews_on_page: { type: boolean } } }
+      responses:
+        '200': { description: Salvo (ignorado em saúde) }
+  /v1/admin/reviews/moderation:
+    get:
+      operationId: listModerationQueue
+      x-koovela-action: admin.review.moderate
+      parameters: [ { name: kind, in: query, schema: { type: string, enum: [held, reported] } } ]
+      responses:
+        '200': { description: Fila (G07) ordenada por prazo }
+  /v1/admin/reviews/{review_id}/decision:
+    post:
+      operationId: decideModeration
+      x-koovela-action: admin.review.moderate
+      parameters: [ { name: review_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, reason]
+              properties:
+                decision: { type: string, enum: [publish, remove, keep] }
+                reason: { type: string }
+      responses:
+        '200': { description: Decisão auditada e comunicada aos dois lados }
+components:
+  schemas:
+    ReviewInput:
+      type: object
+      required: [rating]
+      properties:
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        tags: { type: array, items: { type: string, enum: [punctuality, service, result, ambience] } }
+        comment: { type: string, maxLength: 1000 }
+    RatingSummary:
+      type: object
+      properties:
+        average: { type: [number, 'null'], description: Uma casa decimal; null com menos de 5 }
+        count_12m: { type: integer }
+    PublicReview:
+      type: object
+      properties:
+        rating: { type: integer }
+        tags: { type: array, items: { type: string } }
+        comment: { type: [string, 'null'] }
+        author_display: { type: string, examples: ['Ana S.'] }
+        service_month: { type: string, examples: ['2026-10'] }
+        reply: { type: [object, 'null'], properties: { body: { type: string }, author_role: { type: string } } }

@@ -1,0 +1,298 @@
+openapi: 3.1.0
+info:
+  title: Koovela Quotes — eventos, propostas e contratos (spec 035)
+  version: 1.0.0
+  description: >
+    Spec 035. x-koovela-action em toda operação; tenant resolvido no gateway.
+    Pedido de proposta = quote_request da 033 com kind=event (POST /v1/consumer/quote-requests com event_*).
+    Extensões aditivas: 008 (granularity day_period), 024 (booking_mode proposal), 033 (quotes_limits de evento).
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/tenant/events/settings:
+    get:
+      operationId: listEventSettings
+      x-koovela-action: quotes.events.settings.read
+      responses:
+        '200': { description: Configurações vigentes por filial ou profissional }
+    post:
+      operationId: setEventSettings
+      x-koovela-action: quotes.events.settings.write
+      requestBody:
+        content: { application/json: { schema: { $ref: '#/components/schemas/EventSettings' } } }
+      responses:
+        '201': { description: Nova versão }
+        '422': { description: 'quotes.validity_out_of_limits | quotes.deposit_out_of_range | quotes.professional_capacity_must_be_1' }
+  /v1/tenant/events/blocks:
+    post:
+      operationId: blockDate
+      x-koovela-action: quotes.events.block
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [scope_kind, scope_id, date, reason], properties: { scope_kind: { type: string, enum: [branch, professional] }, scope_id: { type: string, format: uuid }, date: { type: string, format: date }, period_code: { type: [string, 'null'] }, reason: { type: string } } } } }
+      responses:
+        '201': { description: Bloqueado }
+        '409': { description: 'quotes.date_has_holds' }
+  /v1/tenant/events/contract-template:
+    get:
+      operationId: getContractTemplate
+      x-koovela-action: quotes.events.template.read
+      responses:
+        '200': { description: Versão vigente (base + cláusulas) }
+    post:
+      operationId: saveContractTemplate
+      x-koovela-action: quotes.events.template.write
+      description: Só Proprietário
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [extra_clauses_md], properties: { extra_clauses_md: { type: string, maxLength: 20000 } } } } }
+      responses:
+        '201': { description: Nova versão }
+  /v1/tenant/events/contract-template/preview:
+    post:
+      operationId: previewContract
+      x-koovela-action: quotes.events.template.read
+      responses:
+        '200': { description: PDF com campos de exemplo, content: { application/pdf: {} } }
+  /v1/public/branches/{branch_id}/events/availability:
+    get:
+      operationId: getEventAvailability
+      x-koovela-action: public.events.availability
+      parameters:
+        - { name: branch_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: professional_id, in: query, schema: { type: string, format: uuid } }
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Estado por data e período, sem identificar ocupantes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  units:
+                    type: array
+                    items: { type: object, properties: { date: { type: string, format: date }, period_code: { type: [string, 'null'] }, status: { type: string, enum: [free, negotiating, occupied] } } }
+  /v1/tenant/events/requests/{request_id}/proposals:
+    post:
+      operationId: sendProposal
+      x-koovela-action: quotes.events.proposal.send
+      description: Cria versão e pré-reserva (ou troca a pré-reserva se a data mudou)
+      parameters:
+        - { name: request_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        content: { application/json: { schema: { $ref: '#/components/schemas/ProposalInput' } } }
+      responses:
+        '201': { description: 'Proposta sent; hold held até valid_until' }
+        '409': { description: 'quotes.date_unavailable | quotes.date_blocked | quotes.professional_busy' }
+        '422': { description: 'quotes.short_notice_not_allowed | quotes.installments_mismatch | quotes.deposit_out_of_range' }
+  /v1/tenant/events/proposals/{proposal_id}/decline:
+    post:
+      operationId: withdrawProposal
+      x-koovela-action: quotes.events.proposal.send
+      parameters:
+        - { name: proposal_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Proposta retirada; pré-reserva liberada }
+  /v1/tenant/events/calendar:
+    get:
+      operationId: getEventCalendar
+      x-koovela-action: quotes.events.read
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200': { description: Datas com pré-reservas, confirmadas, bloqueios, propostas e contratos }
+  /v1/consumer/events/proposals/{proposal_id}:
+    get:
+      operationId: getMyProposal
+      x-koovela-action: consumer.events.read
+      parameters:
+        - { name: proposal_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Versão vigente, validade, contrato a aceitar (HTML e hash) }
+  /v1/consumer/events/proposals/{proposal_id}/request-changes:
+    post:
+      operationId: requestProposalChanges
+      x-koovela-action: consumer.events.reply
+      parameters:
+        - { name: proposal_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [body], properties: { body: { type: string, maxLength: 1000 } } } } }
+      responses:
+        '200': { description: Fornecedor avisado }
+  /v1/consumer/events/proposals/{proposal_id}/decline:
+    post:
+      operationId: declineProposal
+      x-koovela-action: consumer.events.reply
+      parameters:
+        - { name: proposal_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: declined; pré-reserva liberada }
+  /v1/consumer/events/proposals/{proposal_id}/accept:
+    post:
+      operationId: acceptProposal
+      x-koovela-action: consumer.events.accept
+      x-koovela-step-up: required
+      parameters:
+        - { name: proposal_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [proposal_version, document_sha256, device_fingerprint]
+              properties:
+                proposal_version: { type: integer }
+                document_sha256: { type: string, description: Hash do contrato exibido }
+                full_name: { type: [string, 'null'] }
+                cpf: { type: [string, 'null'], pattern: '^[0-9]{11}$' }
+                birth_date: { type: [string, 'null'], format: date }
+                device_fingerprint: { type: string }
+      responses:
+        '201':
+          description: Contrato awaiting_deposit; pagamento do sinal criado (012) ou envelope de assinatura avançada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  contract_id: { type: string, format: uuid }
+                  signature_mode: { type: string, enum: [simple, advanced] }
+                  signature_url: { type: [string, 'null'] }
+                  deposit_payment_id: { type: [string, 'null'], format: uuid }
+                  deposit_due_at: { type: string, format: date-time }
+        '403': { description: 'quotes.minor_cannot_contract | auth.step_up_required' }
+        '409': { description: 'quotes.proposal_not_valid | quotes.document_changed' }
+        '422': { description: 'identity.cpf_invalid' }
+  /v1/consumer/events/contracts/{contract_id}:
+    get:
+      operationId: getMyContract
+      x-koovela-action: consumer.events.read
+      parameters:
+        - { name: contract_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Contrato, PDF (URL assinada), parcelas, aditivos }
+  /v1/consumer/events/contracts/{contract_id}/installments/{installment_id}/pay:
+    post:
+      operationId: payInstallment
+      x-koovela-action: consumer.events.pay
+      parameters:
+        - { name: contract_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: installment_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      responses:
+        '201': { description: Pagamento criado na 012 (Pix ou cartão) }
+  /v1/consumer/events/contracts/{contract_id}/cancel/simulate:
+    get:
+      operationId: simulateConsumerCancel
+      x-koovela-action: consumer.events.cancel
+      parameters:
+        - { name: contract_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          content: { application/json: { schema: { $ref: '#/components/schemas/CancelSimulation' } } }
+          description: Valor que será devolvido
+  /v1/consumer/events/contracts/{contract_id}/cancel:
+    post:
+      operationId: consumerCancel
+      x-koovela-action: consumer.events.cancel
+      x-koovela-step-up: required
+      parameters:
+        - { name: contract_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: cancelled_by_consumer; estornos iniciados }
+  /v1/consumer/events/amendments/{amendment_id}/accept:
+    post:
+      operationId: acceptAmendment
+      x-koovela-action: consumer.events.accept
+      x-koovela-step-up: required
+      parameters:
+        - { name: amendment_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Aditivo aceito com evidência; contrato amended }
+        '409': { description: 'quotes.date_unavailable (mudança de data)' }
+  /v1/tenant/events/contracts/{contract_id}/amendments:
+    post:
+      operationId: proposeAmendment
+      x-koovela-action: quotes.events.amend
+      parameters:
+        - { name: contract_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '201': { description: Aditivo proposto ao consumidor }
+  /v1/tenant/events/contracts/{contract_id}/cancel:
+    post:
+      operationId: vendorCancel
+      x-koovela-action: quotes.events.vendor_cancel
+      x-koovela-step-up: required
+      parameters:
+        - { name: contract_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [reason], properties: { reason: { type: string } } } } }
+      responses:
+        '200': { description: 'cancelled_by_vendor; devolução integral; marca na reputação (016)' }
+  /v1/tenant/events/contracts/{contract_id}/fulfill:
+    post:
+      operationId: markFulfilled
+      x-koovela-action: quotes.events.fulfill
+      parameters:
+        - { name: contract_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: fulfilled; convite de avaliação (016); aviso de saldo pendente se houver }
+  /v1/tenant/events/contracts/{contract_id}/evidence:
+    get:
+      operationId: getAcceptanceEvidence
+      x-koovela-action: quotes.events.evidence.read
+      description: Proprietário e Gerente da filial; acesso auditado
+      parameters:
+        - { name: contract_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Evidências de cada aceite }
+  /webhooks/signature/{provider}:
+    post:
+      operationId: signatureWebhook
+      x-koovela-action: internal.quotes.signature_webhook
+      parameters:
+        - { name: provider, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Status do envelope (assinatura validada pelo adaptador) }
+components:
+  schemas:
+    EventSettings:
+      type: object
+      additionalProperties: false
+      required: [scope_kind, scope_id, unit, capacity, deposit_kind, validity_days]
+      properties:
+        scope_kind: { type: string, enum: [branch, professional] }
+        scope_id: { type: string, format: uuid }
+        unit: { type: string, enum: [full_day, periods] }
+        periods: { type: array, maxItems: 6, items: { type: object, properties: { code: { type: string }, name: { type: string }, start_local: { type: string }, end_local: { type: string } } } }
+        capacity: { type: integer, minimum: 1, default: 1 }
+        deposit_kind: { type: string, enum: [percent, fixed] }
+        deposit_bps: { type: integer, minimum: 1000, maximum: 5000, default: 3000 }
+        deposit_fixed_cents: { type: integer, minimum: 1 }
+        balance_max_installments: { type: integer, minimum: 1, maximum: 3 }
+        balance_due_days_before: { type: integer, minimum: 0, default: 7 }
+        cancel_tiers: { type: array, items: { type: object, properties: { min_days_before: { type: integer }, refund_deposit_pct: { type: integer, minimum: 0, maximum: 100 }, refund_balance_pct: { type: integer, minimum: 0, maximum: 100 } } } }
+        advanced_signature_above_cents: { type: [integer, 'null'] }
+        validity_days: { type: integer, minimum: 1, maximum: 15, default: 7 }
+        accepts_short_notice: { type: boolean, default: false }
+    ProposalInput:
+      type: object
+      required: [items, dates, deposit_cents, installments]
+      properties:
+        items: { type: array, minItems: 1, items: { type: object, required: [description, quantity, unit_cents], properties: { description: { type: string, maxLength: 300 }, quantity: { type: integer, minimum: 1 }, unit_cents: { type: integer, minimum: 0 } } } }
+        dates: { type: array, minItems: 1, items: { type: object, properties: { date: { type: string, format: date }, period_code: { type: [string, 'null'] } } } }
+        professional_id: { type: [string, 'null'], format: uuid }
+        deposit_cents: { type: integer, minimum: 1 }
+        installments: { type: array, maxItems: 3, items: { type: object, properties: { due_on: { type: string, format: date }, amount_cents: { type: integer, minimum: 1 } } } }
+        notes: { type: string, maxLength: 2000 }
+    CancelSimulation:
+      type: object
+      properties:
+        within_withdrawal_period: { type: boolean }
+        days_before_event: { type: integer }
+        tier_applied: { type: [object, 'null'] }
+        paid_cents: { type: integer }
+        refund_cents: { type: integer }
+        retained_cents: { type: integer }

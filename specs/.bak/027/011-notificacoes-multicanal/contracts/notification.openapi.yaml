@@ -1,0 +1,163 @@
+openapi: 3.1.0
+info:
+  title: Koovela Notification — avisos, preferências, lembretes e link de gestão
+  version: 1.0.0
+  description: Spec 011. x-koovela-action em toda operação.
+servers:
+  - url: https://api.koovela.com
+  - url: http://core.internal:8080
+paths:
+  /v1/internal/notifications:
+    post:
+      operationId: requestNotification
+      x-koovela-action: internal.notification.request
+      summary: Outros domínios pedem um aviso do catálogo (idempotente)
+      parameters: [ { name: Idempotency-Key, in: header, required: true, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type_code, recipient]
+              properties:
+                type_code: { type: string, example: policy.fee_applied }
+                recipient: { type: object, properties: { kind: { type: string, enum: [consumer, professional, reception, owner] }, id: { type: string, format: uuid } } }
+                appointment_id: { type: string, format: uuid }
+                variables: { type: object }
+      responses:
+        '202': { description: Aceito (agrupado, programado ou enviado conforme a política) }
+  /v1/consumer/notification-preferences:
+    get:
+      operationId: getMyPreferences
+      x-koovela-action: consumer.notification.preferences.read
+      responses:
+        '200': { description: Canais por grupo; destinos e estado (válido/suspenso) }
+    put:
+      operationId: setMyPreferences
+      x-koovela-action: consumer.notification.preferences.update
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                groups:
+                  type: object
+                  additionalProperties: { type: array, items: { type: string, enum: [push, sms, email, whatsapp, browser, inbox] } }
+      responses:
+        '200': { description: Salvo; essenciais nunca sem canal }
+        '422': { description: notification.essential_without_channel }
+  /v1/consumer/inbox:
+    get:
+      operationId: listInbox
+      x-koovela-action: consumer.notification.inbox.read
+      parameters: [ { name: cursor, in: query, schema: { type: string } } ]
+      responses:
+        '200': { description: Central de avisos do consumidor }
+  /v1/consumer/devices:
+    post:
+      operationId: registerDevice
+      x-koovela-action: consumer.notification.device.register
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel, token]
+              properties:
+                channel: { type: string, enum: [push, browser] }
+                token: { type: string, description: Token Expo ou subscription Web Push }
+      responses:
+        '201': { description: Destino registrado }
+  /v1/unsubscribe/{signed}:
+    post:
+      operationId: oneClickUnsubscribe
+      x-koovela-action: public.notification.unsubscribe
+      security: []
+      parameters: [ { name: signed, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '200': { description: Grupo descadastrado no canal, sem login }
+  /v1/a/{token}:
+    get:
+      operationId: getManagedAppointment
+      x-koovela-action: public.appointment.manage.read
+      security: []
+      parameters: [ { name: token, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '200': { description: Agendamento restrito ao token (sem login) }
+        '404': { description: Token inválido, vencido ou revogado }
+        '429': { description: Limite por IP }
+  /v1/a/{token}/confirm-attendance:
+    post:
+      operationId: confirmAttendance
+      x-koovela-action: public.appointment.manage.confirm
+      security: []
+      parameters: [ { name: token, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '200': { description: Presença confirmada (aparece na agenda) }
+  /v1/a/{token}/{action}:
+    post:
+      operationId: manageWithOtp
+      x-koovela-action: public.appointment.manage.change
+      security: []
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [reschedule, cancel] } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [otp_challenge_id, code]
+              properties:
+                otp_challenge_id: { type: string, format: uuid }
+                code: { type: string }
+                start: { type: string, format: date-time }
+      responses:
+        '200': { description: Executado pela 009 com a política da 010 }
+  /v1/tenant/notification-settings:
+    put:
+      operationId: setNotificationSettings
+      x-koovela-action: notification.settings.update
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                business_id: { type: string, format: uuid }
+                reminders_minutes_before: { type: array, maxItems: 3, items: { type: integer, minimum: 30, maximum: 4320 } }
+                quiet_hours: { type: object, properties: { start: { type: string }, end: { type: string } } }
+                short_note: { type: string, maxLength: 140 }
+                discreet_service_ids: { type: array, items: { type: string, format: uuid } }
+                owner_daily_digest: { type: boolean }
+      responses:
+        '200': { description: Salvo }
+  /v1/tenant/notification-usage:
+    get:
+      operationId: getUsage
+      x-koovela-action: notification.usage.read
+      responses:
+        '200': { description: Consumo por canal no mês e % da cota de SMS }
+  /v1/admin/notification/templates/{code}:
+    put:
+      operationId: saveTemplate
+      x-koovela-action: notification.template.update
+      parameters: [ { name: code, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '200': { description: Nova versão do modelo (auditada) }
+  /v1/admin/notification/channel-policy:
+    put:
+      operationId: saveChannelPolicy
+      x-koovela-action: notification.channel_policy.update
+      responses:
+        '200': { description: Nova versão da política de canais (auditada) }
+  /v1/webhooks/notification/{provider}:
+    post:
+      operationId: providerWebhook
+      x-koovela-action: public.notification.provider_webhook
+      security: []
+      parameters: [ { name: provider, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '204': { description: Status de entrega (assinatura do provedor verificada) }

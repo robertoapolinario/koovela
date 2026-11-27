@@ -1,0 +1,53 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Privacy — eventos (spec 022)
+  version: 1.0.0
+  description: >
+    privacy.commands (comandos aos domínios, idempotentes) e privacy.events (resultados e avisos). Sem PII além de ids.
+    Consome *.consent.* de 011, 012, 014, 020 para o registro central.
+defaultContentType: application/json
+channels:
+  privacyCommands:
+    address: privacy.commands
+    messages:
+      holderCommand: { $ref: '#/components/messages/HolderCommand' }
+  privacyEvents:
+    address: privacy.events
+    messages:
+      stepCompleted: { $ref: '#/components/messages/StepCompleted' }
+      requestChanged: { $ref: '#/components/messages/RequestChanged' }
+      consentRevokeCommand: { $ref: '#/components/messages/ConsentRevokeCommand' }
+operations:
+  sendHolderCommands:
+    action: send
+    channel: { $ref: '#/channels/privacyCommands' }
+  publishPrivacyEvents:
+    action: send
+    channel: { $ref: '#/channels/privacyEvents' }
+components:
+  messages:
+    HolderCommand:
+      name: privacy.holder.command.v1
+      payload:
+        type: object
+        required: [request_id, op, domain]
+        description: holder_consumer_id é obrigatório exceto em apply_retention e tenant_purge
+        properties:
+          request_id: { type: string, format: uuid }
+          op: { type: string, enum: [describe, export, erase, restrictions, external_cleanup, apply_retention, tenant_purge] }
+          holder_consumer_id: { type: string, format: uuid }
+          domain: { type: string }
+          tenant_ids: { type: array, items: { type: string, format: uuid } }
+          mode: { type: string, enum: [delete, anonymize, block] }
+          retention: { type: object, description: 'apply_retention: category, cutoff, on_expiry', properties: { category: { type: string }, cutoff: { type: string, format: date-time }, on_expiry: { type: string, enum: [delete, anonymize, bulk_delete] } } }
+          dual_control_id: { type: [string, 'null'], format: uuid, description: 'tenant_purge: aprovação dupla da 021' }
+    StepCompleted:
+      name: privacy.step.completed.v1
+      payload: { type: object, properties: { request_id: { type: string, format: uuid }, domain: { type: string }, tenant_id: { type: [string, 'null'], format: uuid }, op: { type: string }, result_ref: { type: [string, 'null'] }, restrictions: { type: array, items: { type: object, properties: { category: { type: string }, until: { type: string, format: date }, basis: { type: string } } } } } }
+    RequestChanged:
+      name: privacy.request.changed
+      summary: event_type ∈ privacy.request.{received,verified,awaiting_business,due_soon,overdue,export_ready,completed,partially_completed,refused}.v1 e privacy.{retention_expiring,tenant_purge_scheduled,policy_published}.v1 — avisados pela 011 (T070)
+      payload: { type: object, properties: { request_id: { type: string, format: uuid }, kind: { type: string }, state: { type: string }, due_at: { type: string, format: date-time } } }
+    ConsentRevokeCommand:
+      name: privacy.consent.revoke.v1
+      payload: { type: object, properties: { consent_ref: { type: string }, domain: { type: string }, tenant_id: { type: [string, 'null'], format: uuid }, holder_consumer_id: { type: string, format: uuid } } }

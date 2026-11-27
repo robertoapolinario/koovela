@@ -1,0 +1,31 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Discovery — eventos de favoritos (spec 031)
+  version: 1.0.0
+  description: >
+    Interno ao discovery (agregados para o painel e BI). Nenhum consumer_id sai do domínio.
+    Consome discovery.participation.* e mudanças de listagem (024) para o estado indisponível.
+defaultContentType: application/json
+channels:
+  discoveryEvents:
+    address: discovery.events
+    messages:
+      favoriteAggregateChanged: { $ref: '#/components/messages/FavoriteAggregateChanged' }
+operations:
+  publishFavoriteAggregates:
+    action: send
+    channel: { $ref: '#/channels/discoveryEvents' }
+components:
+  messages:
+    FavoriteAggregateChanged:
+      name: discovery.favorite_aggregate.changed.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              branch_id: { type: string, format: uuid }
+              professional_ref: { type: [string, 'null'] }
+              count: { type: integer }

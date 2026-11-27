@@ -1,0 +1,119 @@
+openapi: 3.1.0
+info:
+  title: Koovela Insights — benchmark para tenants (spec 037)
+  version: 1.0.0
+  description: >
+    Spec 037. Rotas /v1/tenant/insights/* servidas pelo bi-api (FastAPI) atrás do gateway, com tenant_id resolvido;
+    sem chave de API, sem CSV, sem recortes de fora das filiais do tenant. Rotas /v1/admin/insights/* no core (TypeScript).
+    x-koovela-action em toda operação.
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/tenant/insights/benchmark:
+    get:
+      operationId: getBenchmark
+      x-koovela-action: insights.benchmark.read
+      parameters:
+        - { name: branch_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: category, in: query, required: true, schema: { type: string } }
+        - { name: period_days, in: query, schema: { type: integer, enum: [30, 90, 180], default: 90 } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  period: { type: object, properties: { start: { type: string, format: date }, end: { type: string, format: date } } }
+                  run_published_at: { type: string, format: date-time }
+                  metrics: { type: array, items: { $ref: '#/components/schemas/MetricComparison' } }
+          description: Comparação da filial
+        '403': { description: 'insights.not_in_plan | insights.participation_off | auth.forbidden_branch' }
+  /v1/tenant/insights/demand:
+    get:
+      operationId: getDemandMap
+      x-koovela-action: insights.benchmark.read
+      parameters:
+        - { name: branch_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: category, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  level_used: { type: [string, 'null'], enum: [neighborhood, zone, city, null] }
+                  cells:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        weekday: { type: integer, minimum: 1, maximum: 7 }
+                        hour: { type: integer, minimum: 0, maximum: 23 }
+                        region_index: { type: [integer, 'null'], minimum: 0, maximum: 100 }
+                        branch_occupancy_pct: { type: [integer, 'null'] }
+                        opportunity: { type: boolean }
+                  shortcuts: { type: object, properties: { schedule_url: { type: string }, idle_slots_url: { type: string } } }
+          description: Índice relativo da região + ocupação da filial
+  /v1/tenant/insights/benchmark/pdf:
+    post:
+      operationId: exportOwnComparisonPdf
+      x-koovela-action: insights.benchmark.export_pdf
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [branch_id, category], properties: { branch_id: { type: string, format: uuid }, category: { type: string }, period_days: { type: integer } } } } }
+      responses:
+        '202': { description: PDF gerado em segundo plano com marca d'água; link assinado de curta duração }
+  /v1/tenant/insights/participation:
+    get:
+      operationId: getParticipation
+      x-koovela-action: insights.participation.read
+      responses:
+        '200': { content: { application/json: { schema: { type: object, properties: { state: { type: string, enum: ['on', 'off'] }, changed_at: { type: [string, 'null'], format: date-time } } } } }, description: Estado }
+    put:
+      operationId: setParticipation
+      x-koovela-action: insights.participation.write
+      description: Só Proprietário; aviso de reciprocidade; auditado
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [state, reciprocity_ack], properties: { state: { type: string, enum: ['on', 'off'] }, reciprocity_ack: { type: boolean } } } } }
+      responses:
+        '200': { description: 'off: painel bloqueado já; sai do próximo cálculo. on: volta no próximo cálculo' }
+  /v1/admin/insights/config:
+    get:
+      operationId: listInsightsConfig
+      x-koovela-action: admin.insights.read
+      responses:
+        '200': { description: Versões }
+    post:
+      operationId: proposeInsightsConfig
+      x-koovela-action: admin.insights.config.propose
+      responses:
+        '201': { description: proposed }
+        '422': { description: 'insights.min_below_floor (mínimo < 5)' }
+  /v1/admin/insights/config/{version_id}/approve:
+    post:
+      operationId: approveInsightsConfig
+      x-koovela-action: admin.insights.config.approve
+      parameters:
+        - { name: version_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Aprovada; teste de reidentificação reexecutado antes de valer }
+        '409': { description: 'insights.reid_test_failed' }
+components:
+  schemas:
+    MetricComparison:
+      type: object
+      properties:
+        metric_code: { type: string, enum: [price_typical, occupancy, no_show_rate, late_cancel_rate, avg_ticket, avg_lead_time, repurchase_90d, avg_rating] }
+        metric_version: { type: string }
+        definition: { type: string }
+        unit: { type: string }
+        status: { type: string, enum: [ok, forming, insufficient_data, not_applicable] }
+        level_used: { type: [string, 'null'], enum: [neighborhood, zone, city, null] }
+        region_name: { type: [string, 'null'] }
+        establishments_band: { type: [string, 'null'], enum: ['5–9', '10–19', '20–49', '50–99', '100+', null] }
+        p25: { type: [number, 'null'] }
+        median: { type: [number, 'null'] }
+        p75: { type: [number, 'null'] }
+        own_value: { type: [number, 'null'] }
+        own_percentile_approx: { type: [integer, 'null'] }

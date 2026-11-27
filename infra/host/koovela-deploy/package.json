@@ -1,0 +1,8 @@
+{
+  "name": "@koovela/koovela-deploy",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "vitest run", "test:shell": "sh __tests__/run-bats.sh" },
+  "devDependencies": { "ajv": "8.20.0", "ajv-formats": "3.0.1" }
+}

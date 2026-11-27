@@ -1,0 +1,10 @@
+[Unit]
+Description=Koovela: retenção restic
+After=koovela-data.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/00:00 UTC:retention.sh
+Nice=10
+IOSchedulingClass=idle

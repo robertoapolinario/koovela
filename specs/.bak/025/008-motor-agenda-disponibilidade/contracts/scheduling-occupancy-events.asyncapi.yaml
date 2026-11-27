@@ -1,0 +1,75 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Scheduling — eventos de ocupação (spec 008)
+  version: 1.0.0
+  description: >
+    Outbox do scheduling → scheduling.events. Consome workforce.availability.changed.v1 (007),
+    tenancy.branch.hours_changed.v1 (005), catalog.*.changed (006) para invalidar o cache de tempo livre.
+defaultContentType: application/json
+channels:
+  schedulingEvents:
+    address: scheduling.events
+    messages:
+      holdCreated: { $ref: '#/components/messages/OccupancyChanged' }
+      holdExpired: { $ref: '#/components/messages/OccupancyChanged' }
+      occupancyConfirmed: { $ref: '#/components/messages/OccupancyChanged' }
+      occupancyReleased: { $ref: '#/components/messages/OccupancyChanged' }
+      crossTenantConflict: { $ref: '#/components/messages/CrossTenantConflict' }
+      serviceNeverFits: { $ref: '#/components/messages/ServiceNeverFits' }
+operations:
+  publishSchedulingEvents:
+    action: send
+    channel: { $ref: '#/channels/schedulingEvents' }
+components:
+  messages:
+    OccupancyChanged:
+      name: scheduling.occupancy.changed
+      summary: event_type ∈ scheduling.occupancy.{hold_created,hold_expired,confirmed,released}.v1
+      payload:
+        type: object
+        required: [event_id, event_type, tenant_id, occurred_at, data]
+        properties:
+          event_id: { type: string, format: uuid }
+          event_type: { type: string }
+          tenant_id: { type: string, format: uuid }
+          occurred_at: { type: string, format: date-time }
+          correlation_id: { type: string, format: uuid }
+          data:
+            type: object
+            required: [occupancy_id, professional_id, branch_id, protected_start, protected_end]
+            properties:
+              occupancy_id: { type: string, format: uuid }
+              parent_occupancy_id: { type: [string, 'null'], format: uuid }
+              professional_id: { type: string, format: uuid }
+              person_id: { type: string, format: uuid, description: Para detecção de conflito entre negócios }
+              branch_id: { type: string, format: uuid }
+              protected_start: { type: string, format: date-time }
+              protected_end: { type: string, format: date-time }
+              origin: { type: string }
+              appointment_id: { type: [string, 'null'], format: uuid }
+              reason: { type: [string, 'null'] }
+    ServiceNeverFits:
+      name: scheduling.service_never_fits.v1
+      summary: Serviço ou combo sem nenhum início possível na semana (mais longo que qualquer intervalo de trabalho); o painel avisa o Proprietário
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { branch_id: { type: string, format: uuid }, item_kind: { type: string, enum: [service, combo] }, item_id: { type: string, format: uuid }, total_min: { type: integer } } } } }
+    CrossTenantConflict:
+      name: scheduling.cross_tenant_conflict.detected.v1
+      summary: Aviso ao colaborador e aos dois tenants (C6); não bloqueia por padrão
+      payload:
+        type: object
+        properties:
+          event_id: { type: string, format: uuid }
+          occurred_at: { type: string, format: date-time }
+          data:
+            type: object
+            properties:
+              person_id: { type: string, format: uuid }
+              tenants:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    tenant_id: { type: string, format: uuid }
+                    occupancy_id: { type: string, format: uuid }
+              overlap_start: { type: string, format: date-time }
+              overlap_end: { type: string, format: date-time }

@@ -1,0 +1,76 @@
+openapi: 3.1.0
+info:
+  title: Koovela Discovery — favoritos
+  version: 1.0.0
+  description: Spec 031. x-koovela-action em toda operação.
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/consumer/favorites:
+    get:
+      operationId: listFavorites
+      x-koovela-action: consumer.favorite.list
+      parameters:
+        - { name: lat, in: query, schema: { type: number }, description: Opcional, não guardada }
+        - { name: lng, in: query, schema: { type: number } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        favorite_id: { type: string, format: uuid }
+                        target_kind: { type: string, enum: [branch, professional] }
+                        branch_id: { type: string, format: uuid }
+                        slug: { type: string }
+                        professional_ref: { type: [string, 'null'] }
+                        name: { type: string }
+                        category: { type: string }
+                        cover_url: { type: string }
+                        rating: { type: [object, 'null'], properties: { avg_x10: { type: integer }, count: { type: integer } } }
+                        distance_m: { type: [integer, 'null'] }
+                        next_free_slot_at: { type: [string, 'null'], format: date-time }
+                        state: { type: string, enum: [active, unavailable] }
+          description: Lista com estado; indisponíveis sem link de agendamento
+    post:
+      operationId: addFavorite
+      x-koovela-action: consumer.favorite.add
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_kind, branch_id]
+              properties:
+                target_kind: { type: string, enum: [branch, professional] }
+                branch_id: { type: string, format: uuid }
+                professional_ref: { type: string }
+      responses:
+        '201': { description: Favoritado (idempotente) }
+        '409': { description: favorite.limit_reached }
+  /v1/consumer/favorites/ids:
+    get:
+      operationId: favoriteIds
+      x-koovela-action: consumer.favorite.list
+      responses:
+        '200': { description: Conjunto de alvos favoritados (para marcar cartões da vitrine) }
+  /v1/consumer/favorites/{favorite_id}:
+    delete:
+      operationId: removeFavorite
+      x-koovela-action: consumer.favorite.remove
+      parameters: [ { name: favorite_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '204': { description: Removido }
+  /v1/tenant/discovery/favorites/summary:
+    get:
+      operationId: favoritesSummary
+      x-koovela-action: discovery.participation.read
+      responses:
+        '200': { description: Contagens por negócio, filial e profissional; "menos de 5" abaixo do limiar; sem identidades }

@@ -1,0 +1,13 @@
+{
+  "name": "@koovela/observability",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --passWithNoTests --exclude '**/*.integration.test.ts' --exclude '**/*.int.test.ts' --exclude '**/e2e/**' --exclude '**/node_modules/**'",
+    "test:promtool": "docker run --rm --entrypoint promtool -v \"$PWD\":/o -w /o/alerts/__tests__ prom/prometheus@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06 test rules alerts.test.yml backup.test.yml"
+  },
+  "devDependencies": {
+    "yaml": "2.9.1"
+  }
+}

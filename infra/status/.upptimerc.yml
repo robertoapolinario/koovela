@@ -1,0 +1,39 @@
+# Modelo do repositório separado `koovela-status` (Upptime → GitHub Pages em status.koovela.com).
+# Fica FORA da OCI para funcionar com a OCI inteira fora do ar (REQ-FND-046). Copie para a raiz do repositório novo.
+owner: robertoapolinario
+repo: koovela-status
+user-agent: koovela-status
+sites:
+  - { name: Site e páginas públicas, url: https://koovela.com }
+  - { name: Web do consumidor, url: https://app.koovela.com }
+  - { name: Painel do cliente, url: https://painel.koovela.com }
+  - name: API
+    url: https://api.koovela.com/v1/health
+    expectedStatusCodes: [200]
+    __dangerous__body_down_if_text_missing: '"status":"ok"'
+status-website:
+  cname: status.koovela.com
+  name: Koovela — status
+  introTitle: Estado dos serviços da Koovela
+  introMessage: Atualizado a cada 5 minutos. Manutenções programadas aparecem aqui com antecedência.
+  navbar:
+    - { title: Koovela, href: https://koovela.com }
+i18n:
+  activeIncidents: Incidentes em andamento
+  allSystemsOperational: Todos os sistemas operando normalmente
+  degradedPerformance: Desempenho degradado
+  completelyDown: Fora do ar
+  partialOutage: Indisponibilidade parcial
+  scheduledMaintenance: Manutenção programada
+workflowSchedule:
+  uptime: '*/5 * * * *'
+  responseTime: '0 */6 * * *'
+  graphs: '0 0 * * *'
+  summary: '0 0 * * *'
+  staticSite: '0 1 * * *'
+  updateTemplate: '0 0 * * 0'
+  updates: '0 3 * * 0'
+assignees: [robertoapolinario]
+notifications:
+  - type: custom
+    url: $NOTIFICATION_NTFY_URL   # secret do repositório koovela-status (tópico ntfy com token)

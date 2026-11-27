@@ -1,0 +1,71 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Payments — eventos (spec 012)
+  version: 1.0.0
+  description: >
+    Outbox do payments → payments.events. Sem PII nem dado de cartão.
+    Consome scheduling.appointment.* (009), scheduling.policy_fee.* (010), webhooks do PSP (internos).
+defaultContentType: application/json
+channels:
+  paymentsEvents:
+    address: payments.events
+    messages:
+      paymentChanged: { $ref: '#/components/messages/PaymentChanged' }
+      refundChanged: { $ref: '#/components/messages/RefundChanged' }
+      chargebackChanged: { $ref: '#/components/messages/ChargebackChanged' }
+      payeeChanged: { $ref: '#/components/messages/PayeeChanged' }
+      balanceChanged: { $ref: '#/components/messages/BalanceChanged' }
+      balanceExpiringSoon: { $ref: '#/components/messages/BalanceExpiringSoon' }
+      cardConsentRevoked: { $ref: '#/components/messages/CardConsentRevoked' }
+      reconciliationMismatch: { $ref: '#/components/messages/ReconciliationMismatch' }
+operations:
+  publishPaymentsEvents:
+    action: send
+    channel: { $ref: '#/channels/paymentsEvents' }
+components:
+  messages:
+    PaymentChanged:
+      name: payments.payment.changed
+      summary: event_type ∈ payments.payment.{created,approved,failed,expired,on_site_recorded,voided}.v1 — approved confirma o agendamento (009)
+      payload:
+        type: object
+        required: [event_id, event_type, tenant_id, data]
+        properties:
+          event_id: { type: string, format: uuid }
+          event_type: { type: string }
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              payment_id: { type: string, format: uuid }
+              appointment_id: { type: [string, 'null'], format: uuid }
+              kind: { type: string }
+              method: { type: string }
+              amount: { type: object, properties: { amount_cents: { type: integer }, currency: { type: string } } }
+              split: { type: array, items: { type: object, properties: { party: { type: string }, amount_cents: { type: integer }, status: { type: string } } } }
+    RefundChanged:
+      name: payments.refund.changed
+      summary: event_type ∈ payments.refund.{succeeded,failed}.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { refund_id: { type: string, format: uuid }, payment_id: { type: string, format: uuid }, amount_cents: { type: integer }, origin: { type: string } } } } }
+    ChargebackChanged:
+      name: payments.chargeback.changed
+      summary: event_type ∈ payments.chargeback.{opened,won,lost}.v1 — consumido pela 021
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { chargeback_id: { type: string, format: uuid }, payment_id: { type: string, format: uuid }, due_at: { type: string, format: date-time } } } } }
+    PayeeChanged:
+      name: payments.payee.changed
+      summary: event_type ∈ payments.payee.{under_review,active,rejected,blocked}.v1 — prontidão (005) e estado do colaborador (007)
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { payee_id: { type: string, format: uuid }, level: { type: string }, owner_ref: { type: string, format: uuid }, state: { type: string } } } } }
+    BalanceChanged:
+      name: payments.balance.changed.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { account_id: { type: string, format: uuid }, consumer_id: { type: string, format: uuid }, type: { type: string }, quantity: { type: integer }, balance: { type: integer } } } } }
+    CardConsentRevoked:
+      name: payments.card_consent.revoked.v1
+      summary: Consumidor revogou a cobrança recorrente do cartão salvo; a 013 leva as séries a awaiting_payment
+      payload: { type: object, properties: { consumer_id: { type: string, format: uuid }, data: { type: object, properties: { card_id: { type: string, format: uuid }, consent: { type: string, enum: [recurring, fee] }, revoked_at: { type: string, format: date-time } } } } }
+    BalanceExpiringSoon:
+      name: payments.balance.expiring_soon.v1
+      summary: Sessões de pacote que vencem em 7 dias (REQ-CAT-046) — consumido pela 011
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { account_id: { type: string, format: uuid }, consumer_id: { type: string, format: uuid }, remaining: { type: integer }, expires_at: { type: string, format: date-time } } } } }
+    ReconciliationMismatch:
+      name: payments.reconciliation.mismatch.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { issue_id: { type: string, format: uuid }, kind: { type: string } } } } }
