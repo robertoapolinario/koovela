@@ -87,7 +87,8 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: { node-version-file: .nvmrc, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
+      # O Playwright é dependência dos apps web, não da raiz: o binário só existe no workspace do app.
+      - run: pnpm --filter @koovela/consumer-web exec playwright install --with-deps chromium
       - name: shells web (Playwright + axe, WCAG 2.1 AA)
         run: pnpm test:a11y
       - name: shells nativos (Jest + RNTL)
@@ -103,11 +104,12 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: { node-version-file: .nvmrc, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
+      # O Playwright é dependência dos apps web, não da raiz: o binário só existe no workspace do app.
+      - run: pnpm --filter @koovela/consumer-web exec playwright install --with-deps chromium
       - run: pnpm --filter @koovela/consumer-web build
       - name: Lighthouse CI (REQ-FND-093)
         working-directory: apps/consumer-web
-        run: CHROME_PATH=$(node -e "console.log(require('playwright-core').chromium.executablePath())") pnpm test:lcp
+        run: CHROME_PATH=$(node -e "console.log(require('@playwright/test').chromium.executablePath())") pnpm test:lcp
 
   images:
     name: build linux/arm64 (sem publicar) + Trivy
