@@ -1,0 +1,85 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela — eventos de destaque pago (spec 032)
+  version: 1.0.0
+  description: >
+    Outbox, idempotentes por sponsorship_id + transição. Nenhum identificador de consumidor.
+    Consome: discovery.participation.changed, discovery.region.changed, discovery.listing.reported.v1 (024),
+    billing.subscription.changed (019), eventos de agendamento da 009 com origin_ref sponsored:*.
+defaultContentType: application/json
+channels:
+  discoveryEvents:
+    address: discovery.events
+    messages:
+      sponsoredLifecycle: { $ref: '#/components/messages/SponsoredLifecycle' }
+      sponsoredStats: { $ref: '#/components/messages/SponsoredStats' }
+  billingEvents:
+    address: billing.events
+    messages:
+      sponsoredCharged: { $ref: '#/components/messages/SponsoredCharged' }
+      sponsoredRefunded: { $ref: '#/components/messages/SponsoredRefunded' }
+operations:
+  publishSponsoredLifecycle:
+    action: send
+    channel: { $ref: '#/channels/discoveryEvents' }
+  publishBillingSponsored:
+    action: send
+    channel: { $ref: '#/channels/billingEvents' }
+components:
+  messages:
+    SponsoredLifecycle:
+      name: discovery.sponsored_slot.{purchased|started|paused|ended|cancelled}.v1
+      payload:
+        type: object
+        properties:
+          event_id: { type: string, format: uuid }
+          tenant_id: { type: string, format: uuid }
+          occurred_at: { type: string, format: date-time }
+          data:
+            type: object
+            properties:
+              sponsorship_id: { type: string, format: uuid }
+              branch_id: { type: string, format: uuid }
+              region_id: { type: string, format: uuid }
+              category: { type: string }
+              starts_on: { type: string, format: date }
+              ends_on: { type: string, format: date }
+              price_cents_paid: { type: integer }
+              state: { type: string }
+              reason: { type: [string, 'null'] }
+    SponsoredStats:
+      name: discovery.sponsored_slot.{impression_counted|clicked}.v1
+      description: Lote agregado por minuto
+      payload:
+        type: object
+        properties:
+          sponsorship_id: { type: string, format: uuid }
+          day: { type: string, format: date }
+          window_start: { type: string, format: date-time }
+          count: { type: integer }
+    SponsoredCharged:
+      name: billing.sponsored_slot.charged.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              sponsorship_id: { type: string, format: uuid }
+              invoice_id: { type: string, format: uuid }
+              amount_cents: { type: integer }
+              outcome: { type: string, enum: [paid, failed, expired] }
+              fiscal_invoice_ref: { type: [string, 'null'] }
+    SponsoredRefunded:
+      name: billing.sponsored_slot.refunded.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              sponsorship_id: { type: string, format: uuid }
+              amount_cents: { type: integer }
+              reason: { type: string, enum: [cancel_48h, region_closed, moderation_compensation, admin_outside_rule] }

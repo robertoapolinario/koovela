@@ -1,0 +1,104 @@
+openapi: 3.1.0
+info:
+  title: Koovela Gateway — Saúde
+  version: 1.0.0
+  description: >
+    Contrato mínimo do gateway publicado pela spec 001 (REQ-FND-070 a 073).
+    Toda rota externa nasce sob /v1. Erros seguem Problem Details (RFC 9457).
+servers:
+  - url: https://api.koovela.com
+    description: Produção
+  - url: https://api.staging.koovela.com
+    description: Staging
+  - url: http://api.koovela.localhost
+    description: Local
+paths:
+  /v1/health:
+    get:
+      operationId: getHealth
+      summary: Estado agregado do gateway e das dependências
+      tags: [platform]
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Saudável ou degradado
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          description: Indisponível (alguma dependência obrigatória falhou)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+components:
+  parameters:
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      description: Propagado de ponta a ponta; o gateway gera um UUIDv7 se ausente.
+      schema:
+        type: string
+        format: uuid
+  headers:
+    RequestId:
+      description: Identificador da requisição gerado pelo gateway (UUIDv7).
+      schema:
+        type: string
+        format: uuid
+  responses:
+    TooManyRequests:
+      description: Limite de requisições excedido
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status, version, checked_at, checks]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, down]
+        version:
+          type: string
+          description: Versão de release em execução (AAAA.MM.DD-sha7)
+        checked_at:
+          type: string
+          format: date-time
+        checks:
+          type: array
+          items:
+            $ref: '#/components/schemas/DependencyCheck'
+    DependencyCheck:
+      type: object
+      additionalProperties: false
+      required: [name, status]
+      properties:
+        name:
+          type: string
+          enum: [mysql, redis, rabbitmq, core]
+        status:
+          type: string
+          enum: [ok, down]
+        latency_ms:
+          type: integer
+          minimum: 0
+    Problem:
+      $ref: '../schemas/problem-details.schema.json'

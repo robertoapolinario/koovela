@@ -1,0 +1,15 @@
+{
+  "$comment": "Variáveis lidas por código de aplicação que NÃO são configuração da plataforma (REQ-FND-080). Cada uma com o motivo. Ferramentas de tools/ e de build ficam fora da varredura.",
+  "NODE_ENV": "modo do Node/Vite (development|production), definido pela imagem",
+  "CI": "definida pelo GitHub Actions",
+  "HOME": "sistema operacional",
+  "PATH": "sistema operacional",
+  "PORT": "porta do servidor da web do consumidor; padrão 8080 na imagem e 5173 no dev",
+  "EXPO_PUBLIC_FLAGS": "flags locais do app até a spec 004 (lidas no build do app, nunca segredo)",
+  "TOKENS_SRC": "build dos design tokens (teste de propagação)",
+  "TOKENS_OUT": "build dos design tokens (teste de propagação)",
+  "EXPO_PUBLIC_API_BASE_URL": "base da API do ambiente embutida no build do app (não é segredo)",
+  "ANDROID_CERT_SHA256": "fingerprint público da chave do Play para os links universais (variável do environment do build)",
+  "APPLE_TEAM_ID": "Team ID público da Apple para os links universais (pendente)",
+  "KOOVELA_ENV": "no script de build dos links universais: só decide se a ausência do fingerprint falha"
+}

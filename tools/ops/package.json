@@ -1,0 +1,15 @@
+{
+  "name": "@koovela/ops",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run --passWithNoTests --exclude '**/*.integration.test.ts' --exclude '**/*.int.test.ts' --exclude '**/e2e/**' --exclude '**/node_modules/**'"
+  },
+  "dependencies": {
+    "@koovela/platform-logger": "workspace:*",
+    "yaml": "2.9.1"
+  }
+}

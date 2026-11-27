@@ -1,0 +1,14 @@
+[Unit]
+Description=Koovela: processos do host de aplicação (versão em /var/lib/koovela/images.env)
+Requires=docker.service
+After=docker.service koovela-secrets.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/koovela/infra/compose
+ExecStart=/usr/bin/docker compose -f app-host.yml --env-file /var/lib/koovela/images.env up -d
+ExecStop=/usr/bin/docker compose -f app-host.yml --env-file /var/lib/koovela/images.env stop
+
+[Install]
+WantedBy=multi-user.target

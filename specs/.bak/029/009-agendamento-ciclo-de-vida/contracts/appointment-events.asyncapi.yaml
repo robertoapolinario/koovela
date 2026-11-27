@@ -1,0 +1,67 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Scheduling — eventos de agendamento (spec 009)
+  version: 1.0.0
+  description: >
+    Outbox do scheduling → scheduling.events. Só identificadores (sem PII). Consumidores:
+    projeção consumer_appointments_index, notification (011), payments (012), loyalty (015),
+    engagement (016), fiscal (017), workforce (prévia de comissão), BI.
+    Consome: payments.payment.approved.v1 (012), workforce.availability.changed.v1 (007),
+    tenancy.branch.hours_changed.v1 (005), scheduling.occupancy.hold_expired.v1 (008).
+defaultContentType: application/json
+channels:
+  schedulingEvents:
+    address: scheduling.events
+    messages:
+      appointmentStateChanged: { $ref: '#/components/messages/AppointmentStateChanged' }
+operations:
+  publishAppointmentEvents:
+    action: send
+    channel: { $ref: '#/channels/schedulingEvents' }
+components:
+  messages:
+    AppointmentStateChanged:
+      name: scheduling.appointment.state_changed
+      summary: >
+        event_type ∈ scheduling.appointment.{drafted,pending_payment,confirmed,checked_in,completed,
+        cancelled_by_consumer,cancelled_by_business,no_show,no_show_corrected,rescheduled,expired,
+        professional_changed}.v1
+      payload:
+        type: object
+        required: [event_id, event_type, version, tenant_id, occurred_at, actor, correlation_id, data]
+        properties:
+          event_id: { type: string, format: uuid }
+          event_type: { type: string }
+          version: { const: 1 }
+          tenant_id: { type: string, format: uuid }
+          occurred_at: { type: string, format: date-time }
+          actor:
+            type: object
+            properties:
+              type: { type: string, enum: [consumer, staff, system, payments] }
+              id: { type: string }
+          correlation_id: { type: string, format: uuid }
+          data:
+            type: object
+            required: [appointment_id, business_id, branch_id, consumer_id, professional_id, from_state, to_state, start_at]
+            properties:
+              appointment_id: { type: string, format: uuid }
+              business_id: { type: string, format: uuid }
+              branch_id: { type: string, format: uuid }
+              consumer_id: { type: string, format: uuid }
+              professional_id: { type: string, format: uuid }
+              item_kind: { type: string, enum: [service, combo] }
+              item_id: { type: string, format: uuid }
+              from_state: { type: [string, 'null'] }
+              to_state: { type: string }
+              start_at: { type: string, format: date-time }
+              end_at: { type: string, format: date-time }
+              timezone: { type: string }
+              origin: { type: string }
+              channel: { type: string }
+              rescheduled_from_id: { type: [string, 'null'], format: uuid }
+              frozen: { type: object, description: Ids das versões congeladas }
+              price_snapshot: { type: object, properties: { amount_cents: { type: integer }, currency: { type: string } } }
+              final_amount: { type: [object, 'null'] }
+              recorded_offline: { type: boolean }
+              reason_code: { type: [string, 'null'] }

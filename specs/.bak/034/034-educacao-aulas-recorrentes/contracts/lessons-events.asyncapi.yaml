@@ -1,0 +1,71 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Scheduling — eventos de aulas recorrentes (spec 034)
+  version: 1.0.0
+  description: >
+    Outbox, idempotentes. Os eventos de série da 013 ganham kind e subject_id (aditivo).
+    Nenhum evento leva o conteúdo do registro da aula.
+    Consumidores: notifications (011), payments (estornos e reversões), bi (023: aderência, faltas, duração).
+defaultContentType: application/json
+channels:
+  schedulingEvents:
+    address: scheduling.events
+    messages:
+      seriesCreated: { $ref: '#/components/messages/SeriesCreated' }
+      lessonRecorded: { $ref: '#/components/messages/LessonRecorded' }
+      recessDeclared: { $ref: '#/components/messages/RecessDeclared' }
+operations:
+  publishScheduling:
+    action: send
+    channel: { $ref: '#/channels/schedulingEvents' }
+components:
+  messages:
+    SeriesCreated:
+      name: scheduling.series.created.v1
+      description: Evento da 013 com campos aditivos
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              series_id: { type: string, format: uuid }
+              kind: { type: string, enum: [standard, lesson] }
+              item_kind: { type: string, enum: [service, combo, class_group] }
+              item_id: { type: string, format: uuid }
+              consumer_id: { type: string, format: uuid }
+              subject_id: { type: [string, 'null'], format: uuid }
+              payment_mode: { type: string }
+              frequency: { type: string }
+              lesson_terms_version: { type: [string, 'null'] }
+    LessonRecorded:
+      name: scheduling.lesson.recorded.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              record_id: { type: string, format: uuid }
+              series_id: { type: [string, 'null'], format: uuid }
+              occurrence_ref: { type: string }
+              instructor_id: { type: string, format: uuid }
+              holder_consumer_id: { type: string, format: uuid }
+              recorded_at: { type: string, format: date-time }
+    RecessDeclared:
+      name: scheduling.branch.recess_declared.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              recess_id: { type: string, format: uuid }
+              branch_id: { type: string, format: uuid }
+              starts_on: { type: string, format: date }
+              ends_on: { type: string, format: date }
+              affected_occurrences: { type: integer }
+              affected_sessions: { type: integer }

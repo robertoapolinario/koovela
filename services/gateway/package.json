@@ -1,0 +1,39 @@
+{
+  "name": "@koovela/gateway",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/app.ts"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run --passWithNoTests --exclude '**/*.integration.test.ts' --exclude '**/*.int.test.ts' --exclude '**/e2e/**' --exclude '**/node_modules/**'"
+  },
+  "dependencies": {
+    "@fastify/cors": "11.4.3",
+    "@fastify/rate-limit": "11.3.0",
+    "@koovela/i18n": "workspace:*",
+    "@koovela/platform-config": "workspace:*",
+    "@koovela/platform-errors": "workspace:*",
+    "@koovela/platform-health": "workspace:*",
+    "@koovela/platform-logger": "workspace:*",
+    "@koovela/platform-otel": "workspace:*",
+    "@koovela/platform-outbox": "workspace:*",
+    "@koovela/platform-tenant-context": "workspace:*",
+    "amqplib": "2.4.2",
+    "fastify": "5.12.8",
+    "fastify-type-provider-zod": "7.0.0",
+    "ioredis": "6.1.0",
+    "mysql2": "3.24.6",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/amqplib": "2.2.1",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "yaml": "2.9.1"
+  }
+}

@@ -47,6 +47,8 @@ env/
 *.egg-info/
 dist/
 build/
+# tools/build é código-fonte (bundler das imagens), não artefato.
+!tools/build/
 
 # ==========================================
 # Frontend / Mobile / Node.js

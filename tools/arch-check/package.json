@@ -1,0 +1,12 @@
+{
+  "name": "@koovela/arch-check",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --passWithNoTests --exclude '**/*.integration.test.ts' --exclude '**/*.int.test.ts' --exclude '**/e2e/**' --exclude '**/node_modules/**'"
+  },
+  "devDependencies": {
+    "dependency-cruiser": "18.9.0"
+  }
+}

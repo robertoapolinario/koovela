@@ -1,0 +1,45 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Fiscal — eventos (spec 017)
+  version: 1.0.0
+  description: >
+    Outbox do fiscal → fiscal.events. Sem CPF nem dados do certificado.
+    Consome scheduling.appointment.completed.v1 (009), payments.payment.{approved,on_site_recorded}.v1 e
+    payments.refund.succeeded.v1 (012), catalog.package.sold.v1 / payments.balance.changed.v1 (consumo de sessão).
+defaultContentType: application/json
+channels:
+  fiscalEvents:
+    address: fiscal.events
+    messages:
+      invoiceChanged: { $ref: '#/components/messages/InvoiceChanged' }
+      certificateExpiring: { $ref: '#/components/messages/CertificateExpiring' }
+      pendingOpened: { $ref: '#/components/messages/PendingOpened' }
+operations:
+  publishFiscalEvents:
+    action: send
+    channel: { $ref: '#/channels/fiscalEvents' }
+components:
+  messages:
+    InvoiceChanged:
+      name: fiscal.invoice.changed
+      summary: event_type ∈ fiscal.invoice.{requested,authorized,rejected,failed_permanent,cancelled}.v1 — authorized dispara o envio ao consumidor (011)
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              invoice_id: { type: string, format: uuid }
+              source_kind: { type: string }
+              source_id: { type: string, format: uuid }
+              consumer_id: { type: [string, 'null'], format: uuid }
+              municipality_ibge: { type: string }
+              amount_cents: { type: integer }
+              rejection_code: { type: [string, 'null'] }
+    CertificateExpiring:
+      name: fiscal.certificate.expiring.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { issuer_id: { type: string, format: uuid }, not_after: { type: string, format: date } } } } }
+    PendingOpened:
+      name: fiscal.pending.opened.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { pending_id: { type: string, format: uuid }, kind: { type: string } } } } }

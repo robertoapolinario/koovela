@@ -1,0 +1,11 @@
+[Unit]
+Description=Koovela: varredura de borda (métricas de certificado e security.txt para o Prometheus)
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/koovela/data.env
+ExecStart=/usr/bin/docker run --rm -v /opt/koovela:/repo:ro -v /var/lib/koovela/metrics:/out -w /repo \
+  node@sha256:873f586f3794f52281bd039bf02c048a0be08fde619338f9941bad1eb6b34530 \
+  node tools/edge-scan/src/cli.ts --env ${KOOVELA_ENV} --metrics /out/edge.prom
+SuccessExitStatus=0 1

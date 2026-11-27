@@ -1,0 +1,31 @@
+# Rotas locais em *.koovela.localhost (REQ-FND-002). Espelham os endereços canônicos de produção.
+http:
+  routers:
+    public:
+      rule: Host(`koovela.localhost`)
+      service: consumer-web
+    app:
+      rule: Host(`app.koovela.localhost`)
+      service: consumer-web
+    painel:
+      rule: Host(`painel.koovela.localhost`)
+      service: tenant-web
+    admin:
+      rule: Host(`admin.koovela.localhost`)
+      service: admin-web
+    api:
+      rule: Host(`api.koovela.localhost`)
+      service: gateway
+  services:
+    consumer-web:
+      loadBalancer:
+        servers: [{ url: 'http://consumer-web:5173' }]
+    tenant-web:
+      loadBalancer:
+        servers: [{ url: 'http://tenant-web:5173' }]
+    admin-web:
+      loadBalancer:
+        servers: [{ url: 'http://admin-web:5173' }]
+    gateway:
+      loadBalancer:
+        servers: [{ url: 'http://gateway:8080' }]

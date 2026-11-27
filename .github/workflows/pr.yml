@@ -1,0 +1,174 @@
+# Portões obrigatórios de PR (REQ-FND-010/015). Só `pull_request` — nunca `pull_request_target`,
+# para que código de fork não rode com segredos (repositório público).
+name: pr
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  TURBO_TELEMETRY_DISABLED: '1'
+  GITLEAKS_VERSION: '8.30.1'
+
+jobs:
+  quality:
+    name: lint · tipos · unidade · arquitetura · env
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0 }
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version-file: .nvmrc, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: branch NNN-nome
+        # O nome do branch vem do autor do PR: só pelo ambiente (GITHUB_HEAD_REF), nunca interpolado no script.
+        run: pnpm branch:check
+      - name: commitlint (mensagens do PR)
+        run: pnpm exec commitlint --from "${{ github.event.pull_request.base.sha }}" --to "${{ github.event.pull_request.head.sha }}" --verbose
+      - name: lint, tipos e unidade (só o que mudou)
+        run: pnpm exec turbo run lint typecheck test --filter="...[origin/${{ github.base_ref }}]"
+      - name: fronteiras entre domínios
+        run: pnpm arch:check
+      - name: chaves de configuração × .env.example
+        run: pnpm env:check
+      - name: versões fixadas (imagens por digest, dependências exatas, actions por SHA)
+        run: pnpm pin:check
+      - name: contratos (mudança incompatível sem nova versão)
+        run: pnpm contracts:breaking --base "origin/${{ github.base_ref }}"
+
+  integration:
+    name: integração (Testcontainers)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version-file: .nvmrc, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec vitest run --config vitest.integration.config.ts
+
+  security:
+    name: segredos · dependências
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0 }
+      - name: gitleaks (histórico do PR)
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_arm64.tar.gz" | tar -xz gitleaks
+          ./gitleaks git --no-banner --redact --config .gitleaks.toml --log-opts="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+      - name: Trivy (dependências)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scanners: vuln,secret,misconfig
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+
+  a11y:
+    name: acessibilidade (axe, AA)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version-file: .nvmrc, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      # O Playwright é dependência dos apps web, não da raiz: o binário só existe no workspace do app.
+      - run: pnpm --filter @koovela/consumer-web exec playwright install --with-deps chromium
+      - name: shells web (Playwright + axe, WCAG 2.1 AA)
+        run: pnpm test:a11y
+      - name: shells nativos (Jest + RNTL)
+        run: pnpm --filter @koovela/consumer-mobile --filter @koovela/pro-mobile test
+
+  lighthouse:
+    name: LCP < 2,5 s em 4G (páginas públicas)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version-file: .nvmrc, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      # O Playwright é dependência dos apps web, não da raiz: o binário só existe no workspace do app.
+      - run: pnpm --filter @koovela/consumer-web exec playwright install --with-deps chromium
+      - run: pnpm --filter @koovela/consumer-web build
+      - name: Lighthouse CI (REQ-FND-093)
+        working-directory: apps/consumer-web
+        run: CHROME_PATH=$(node -e "console.log(require('@playwright/test').chromium.executablePath())") pnpm test:lcp
+
+  images:
+    name: build linux/arm64 (sem publicar) + Trivy
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - { name: gateway, dockerfile: services/gateway/Dockerfile }
+          - { name: core, dockerfile: runtimes/core/Dockerfile }
+          - { name: workers, dockerfile: runtimes/workers/Dockerfile }
+          - { name: consumer-web, dockerfile: apps/consumer-web/Dockerfile }
+          - { name: tenant-web, dockerfile: apps/tenant-web/Dockerfile }
+          - { name: admin-web, dockerfile: apps/admin-web/Dockerfile }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: build ${{ matrix.image.name }}
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.image.dockerfile }}
+          platforms: linux/arm64
+          push: false
+          load: true
+          tags: koovela/${{ matrix.image.name }}:pr
+          cache-from: type=gha,scope=${{ matrix.image.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}
+      - name: Trivy (imagem)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: koovela/${{ matrix.image.name }}:pr
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+
+  contract-provider:
+    name: contrato de provedor (Schemathesis × gateway)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: services/gateway/Dockerfile
+          platforms: linux/arm64
+          load: true
+          tags: koovela/gateway:contract
+          cache-from: type=gha,scope=gateway
+      - name: Schemathesis contra o gateway (dependências fora do ar → 503 documentado)
+        run: |
+          docker network create st
+          docker run -d --name gw --network st -e KOOVELA_ENV=test -e KOOVELA_PROCESS=gateway -e MYSQL_HOST=nada \
+            -e MYSQL_USER_GATEWAY=x -e MYSQL_PASSWORD_GATEWAY=x -e RABBITMQ_URL=amqp://x:x@nada:5672 -e REDIS_URL=redis://nada:6379 \
+            -e CORS_ALLOWED_ORIGINS=http://app.koovela.localhost -e CORE_URL=http://nada:8080 -e RATE_LIMIT_MAX=1000 koovela/gateway:contract
+          sleep 8
+          docker run --rm --network st -v "$PWD/packages/contracts":/contracts:ro \
+            schemathesis/schemathesis@sha256:1d25affc81d9ba08d6a6720ec645d6b95722b510d6ca69ff4395ef146d3270fe \
+            run /contracts/openapi/gateway.openapi.yaml --url http://gw:8080 --checks all --exclude-checks not_a_server_error --max-examples 100

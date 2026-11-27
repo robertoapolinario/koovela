@@ -1,0 +1,37 @@
+# Prometheus (host de dados). Retenção 30 dias pela flag --storage.tsdb.retention.time=30d (db-host.yml).
+# Métricas dos processos chegam por OTLP (--web.enable-otlp-receiver); o resto por scrape.
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    environment: ${KOOVELA_ENV}
+
+rule_files:
+  - /etc/prometheus/alerts/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs: [{ targets: ['alertmanager:9093'] }]
+
+otlp:
+  promote_resource_attributes: [service.name, service.version, deployment.environment.name]
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs: [{ targets: ['localhost:9090'] }]
+  - job_name: node
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels: { host: db }
+      - targets: ['${APP_HOST_IP}:9100']
+        labels: { host: app }
+  - job_name: traefik
+    static_configs: [{ targets: ['${APP_HOST_IP}:8082'] }]
+  - job_name: rabbitmq
+    static_configs: [{ targets: ['rabbitmq:15692'] }]
+  - job_name: mysql
+    static_configs: [{ targets: ['mysqld-exporter:9104'] }]
+  - job_name: redis
+    static_configs: [{ targets: ['redis-exporter:9121'] }]
+  - job_name: otel-collector
+    static_configs: [{ targets: ['otel-collector:8888'] }]

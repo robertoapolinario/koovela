@@ -1,0 +1,28 @@
+{
+  "name": "@koovela/sdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./zod": "./src/generated/zod/gateway.ts"
+  },
+  "scripts": {
+    "generate": "orval --config orval.config.ts",
+    "prepare": "orval --config orval.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@koovela/contracts": "workspace:*",
+    "@tanstack/react-query": "5.108.4",
+    "zod": "4.6.7"
+  },
+  "peerDependencies": {
+    "react": "19.3.0"
+  },
+  "devDependencies": {
+    "orval": "8.49.0",
+    "@types/react": "19.3.3",
+    "react": "19.3.0"
+  }
+}

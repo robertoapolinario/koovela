@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Roda node/pnpm num contêiner (Node 24 + Docker CLI) quando o host não tem Node instalado.
+# O repositório é montado no MESMO caminho absoluto do host, para que o Docker Compose chamado
+# de dentro do contêiner monte os volumes corretamente no daemon do host.
+# Uso: tools/dev/kn pnpm install | tools/dev/kn pnpm koovela up
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+IMAGE="koovela-dev-tools:$(shasum -a 256 "$ROOT/tools/dev/Dockerfile" | cut -c1-12)"
+if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  docker build -q -t "$IMAGE" -f "$ROOT/tools/dev/Dockerfile" "$ROOT/tools/dev" >/dev/null
+fi
+# O contêiner roda sem root: entra no grupo dono do socket do Docker para falar com o daemon do host.
+SOCK_GID="$(docker run --rm --entrypoint stat -v /var/run/docker.sock:/var/run/docker.sock "$IMAGE" -c %g /var/run/docker.sock)"
+TTY="-i"
+if [ -t 0 ] && [ -t 1 ]; then TTY="-it"; fi
+exec docker run --rm "$TTY" \
+  -v "$ROOT":"$ROOT" -w "$PWD" \
+  --group-add "$SOCK_GID" \
+  -v koovela_pnpm_store_node:/pnpm-store \
+  -v "$HOME/.koovela":/home/node/.koovela \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -e npm_config_store_dir=/pnpm-store \
+  -e KOOVELA_HOST_HOME="$HOME" \
+  -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal \
+  -e CI="${CI:-}" \
+  -e TURBO_TELEMETRY_DISABLED=1 \
+  --add-host=host.docker.internal:host-gateway \
+  "$IMAGE" "$@"

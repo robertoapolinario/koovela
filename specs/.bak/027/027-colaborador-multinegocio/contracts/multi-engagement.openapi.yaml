@@ -1,0 +1,91 @@
+openapi: 3.1.0
+info:
+  title: Koovela Workforce — colaborador em vários negócios
+  version: 1.0.0
+  description: >
+    Spec 027. Rotas /v1/pro/* servidas só à própria pessoa; nenhuma rota de tenant revela outros vínculos.
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/pro/engagements:
+    get:
+      operationId: listMyEngagements
+      x-koovela-action: pro.engagement.list
+      responses:
+        '200': { description: Vínculos ativos (negócio, papel, filial, cor) }
+  /v1/pro/agenda:
+    get:
+      operationId: unifiedAgenda
+      x-koovela-action: pro.agenda.unified
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200': { description: Itens de todos os vínculos com negócio e cor; conflitos e escalas sobrepostas marcados }
+  /v1/pro/conflicts:
+    get:
+      operationId: listMyConflicts
+      x-koovela-action: pro.conflict.list
+      responses:
+        '200': { description: Conflitos abertos com os dois atendimentos completos }
+  /v1/pro/preferences:
+    put:
+      operationId: setProPreferences
+      x-koovela-action: pro.preferences.update
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cross_block_enabled: { type: boolean }
+                tenant_colors: { type: object, additionalProperties: { type: string } }
+      responses:
+        '200': { description: Salvo; ligar cria bloqueios futuros nos outros negócios, desligar remove }
+  /v1/pro/profile:
+    put:
+      operationId: setGlobalProfile
+      x-koovela-action: pro.profile.update
+      responses:
+        '200': { description: Perfil global (sobreposto por negócio quando ajustado) }
+  /v1/pro/time-off/all:
+    post:
+      operationId: requestTimeOffEverywhere
+      x-koovela-action: pro.time_off.request_all
+      parameters: [ { name: Idempotency-Key, in: header, required: true, schema: { type: string } } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, to]
+              properties:
+                from: { type: string, format: date-time }
+                to: { type: string, format: date-time }
+                reason: { type: string }
+      responses:
+        '202': { description: Um pedido separado por negócio (aprovação pelas regras de cada um) }
+  /v1/pro/commissions/summary:
+    get:
+      operationId: commissionsSummary
+      x-koovela-action: pro.settlement.summary
+      responses:
+        '200': { description: Previsto, a receber e recebido por negócio e total }
+  /v1/tenant/professionals/{professional_id}/external-commitments:
+    get:
+      operationId: externalCommitments
+      x-koovela-action: scheduling.external_commitment.read
+      summary: Usado no agendamento manual; nunca informa o negócio de origem
+      parameters:
+        - { name: professional_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  windows: { type: array, items: { type: object, properties: { from: { type: string, format: date-time }, to: { type: string, format: date-time }, label: { const: compromisso fora deste negócio } } } }
+          description: Só janelas

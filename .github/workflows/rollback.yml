@@ -1,0 +1,35 @@
+# Rollback em um comando (REQ-FND-025): volta o ambiente para a versão anterior guardada no host.
+# Meta ≤ 10 min. Não exige revisor (é a saída de emergência), mas fica registrado no environment.
+name: rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Ambiente
+        type: choice
+        options: [staging, production]
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    environment:
+      name: ${{ inputs.environment }}-rollback
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - env:
+          TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_HOST: ${{ vars.DEPLOY_SSH_HOST }}
+          SSH_KNOWN_HOSTS: ${{ vars.DEPLOY_SSH_KNOWN_HOSTS }}
+        run: sh infra/host/koovela-deploy/remote.sh "${{ inputs.environment }}" - rollback

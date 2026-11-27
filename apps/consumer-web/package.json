@@ -1,0 +1,38 @@
+{
+  "name": "@koovela/consumer-web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/security-txt.ts && node scripts/well-known.ts && node server.ts",
+    "build": "node scripts/security-txt.ts && node scripts/well-known.ts && react-router build",
+    "start": "NODE_ENV=production node server.ts",
+    "typecheck": "react-router typegen && tsc -p tsconfig.json --noEmit",
+    "lint": "eslint app",
+    "test": "vitest run --passWithNoTests --exclude '**/*.integration.test.ts' --exclude '**/*.int.test.ts' --exclude '**/e2e/**' --exclude '**/node_modules/**' __tests__",
+    "test:a11y": "playwright test",
+    "test:lcp": "lhci autorun"
+  },
+  "dependencies": {
+    "@koovela/i18n": "workspace:*",
+    "@koovela/ui-web": "workspace:*",
+    "@react-router/express": "7.18.7",
+    "@react-router/node": "7.18.7",
+    "express": "5.3.0",
+    "isbot": "5.2.4",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-router": "7.18.7"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.1",
+    "@playwright/test": "1.65.1",
+    "@react-router/dev": "7.18.7",
+    "@types/express": "5.0.6",
+    "@types/react": "19.3.3",
+    "@types/react-dom": "19.3.0",
+    "vite": "7.3.8",
+    "@koovela/testing": "workspace:*",
+    "@lhci/cli": "0.16.1"
+  }
+}

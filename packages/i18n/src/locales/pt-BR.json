@@ -1,0 +1,112 @@
+{
+  "errors": {
+    "platform": {
+      "internal_error": {
+        "title": "Erro interno",
+        "detail": "Algo deu errado do nosso lado. Tente de novo em instantes."
+      },
+      "not_found": {
+        "title": "Não encontrado",
+        "detail": "O recurso pedido não existe."
+      },
+      "validation_failed": {
+        "title": "Dados inválidos",
+        "detail": "Confira os campos destacados."
+      },
+      "rate_limited": {
+        "title": "Muitas requisições",
+        "detail": "Aguarde {{retryAfter}} segundos e tente de novo."
+      },
+      "dependency_unavailable": {
+        "title": "Serviço indisponível",
+        "detail": "Um componente necessário está fora do ar ({{dependency}})."
+      },
+      "origin_not_allowed": {
+        "title": "Origem não permitida",
+        "detail": "Esta origem não pode chamar a API."
+      },
+      "method_not_allowed": {
+        "title": "Método não permitido",
+        "detail": "Este endereço não aceita este método."
+      },
+      "bad_request": {
+        "title": "Requisição inválida",
+        "detail": "A requisição não pôde ser entendida."
+      },
+      "payload_too_large": {
+        "title": "Conteúdo grande demais",
+        "detail": "Reduza o tamanho do envio."
+      },
+      "unsupported_media_type": {
+        "title": "Tipo de conteúdo não suportado",
+        "detail": "Envie o conteúdo no formato esperado."
+      }
+    }
+  },
+  "nav": {
+    "consumer": {
+      "home": "Início",
+      "appointments": "Agendamentos",
+      "series": "Séries",
+      "loyalty": "Fidelidade",
+      "profile": "Perfil",
+      "discover": "Descobrir"
+    },
+    "pro": {
+      "agenda": "Agenda",
+      "commissions": "Comissões",
+      "time_off": "Folgas",
+      "time_off_and_swaps": "Folgas e trocas",
+      "profile": "Perfil",
+      "profile_and_portfolio": "Perfil e portfólio"
+    },
+    "tenant": {
+      "home": "Início",
+      "agenda": "Agenda",
+      "clients": "Clientes",
+      "catalog": "Catálogo",
+      "team": "Equipe",
+      "finance": "Financeiro",
+      "invoices": "Notas fiscais",
+      "loyalty": "Fidelidade",
+      "reviews": "Avaliações",
+      "idle_slots": "Horários ociosos",
+      "settings": "Configurações"
+    },
+    "admin": {
+      "overview": "Visão geral",
+      "tenants": "Clientes",
+      "onboarding_kyc": "Cadastro e KYC",
+      "billing": "Cobrança",
+      "feature_flags": "Funcionalidades",
+      "grants": "Concessões",
+      "impersonation": "Acesso assistido",
+      "antifraud": "Antifraude",
+      "audit": "Auditoria",
+      "schemas": "Esquemas",
+      "bi": "BI"
+    }
+  },
+  "shell": {
+    "empty_screen": "Tela {{code}}",
+    "skip_to_content": "Pular para o conteúdo",
+    "brand": "Koovela",
+    "nav_label": "Navegação principal",
+    "branch_selector": "Filial",
+    "branch_example": "Filial Centro (sintética)",
+    "status_label": "Estado da API",
+    "status_ok": "API no ar",
+    "status_degraded": "API degradada",
+    "status_down": "API fora do ar",
+    "status_unknown": "Verificando a API…",
+    "not_found_title": "Página não encontrada",
+    "not_found_body": "Confira o endereço ou volte para o início.",
+    "public_institutional_title": "Koovela",
+    "public_institutional_body": "Agendamento para negócios de serviço. Em breve.",
+    "public_page_title": "Página do estabelecimento",
+    "onboarding_title": "Cadastro do negócio",
+    "pro_brand": "Koovela Pro",
+    "admin_brand": "Koovela Gestão",
+    "tenant_brand": "Koovela Painel"
+  }
+}

@@ -1,0 +1,102 @@
+# Verificações noturnas e mensais fora do caminho do PR.
+name: nightly
+
+on:
+  schedule:
+    - cron: '17 6 * * *'   # diário, 03:17 em São Paulo
+    - cron: '41 7 3 * *'   # mensal, dia 3
+  workflow_dispatch:
+    inputs:
+      job:
+        type: choice
+        options: [edge-scan, restore-test, pii-sweep, e2e-local]
+        default: edge-scan
+
+permissions:
+  contents: read
+
+jobs:
+  edge-scan:
+    if: github.event_name == 'schedule' && github.event.schedule == '17 6 * * *' || inputs.job == 'edge-scan'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [staging, production]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version-file: .nvmrc, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm ops:edge-scan --env ${{ matrix.env }} --metrics edge-${{ matrix.env }}.prom
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: edge-${{ matrix.env }}
+          path: edge-${{ matrix.env }}.prom
+          retention-days: 30
+
+  e2e-local:
+    if: github.event_name == 'schedule' && github.event.schedule == '17 6 * * *' || inputs.job == 'e2e-local'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version-file: .nvmrc, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: pnpm koovela up (ambiente local completo) + teste de falha por componente
+        run: KOOVELA_E2E=1 pnpm exec vitest run --config vitest.integration.config.ts tools/koovela-cli
+
+  pii-sweep:
+    if: github.event_name == 'schedule' && github.event.schedule == '41 7 3 * *' || inputs.job == 'pii-sweep'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    environment: production-readonly
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version-file: .nvmrc, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: varredura de PII nos logs (Loki via Grafana, atrás do Access)
+        env:
+          LOKI_QUERY_URL: https://grafana.koovela.com/api/datasources/proxy/uid/loki/loki/api/v1/query
+          GRAFANA_TOKEN: ${{ secrets.GRAFANA_READONLY_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: pnpm ops:pii-sweep "pii-sweep-$(date -u +%Y-%m).md"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with: { name: pii-sweep, path: 'pii-sweep-*.md', retention-days: 400 }
+
+  restore-test:
+    if: github.event_name == 'schedule' && github.event.schedule == '41 7 3 * *' || inputs.job == 'restore-test'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 300
+    environment: staging
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: restauração mensal no db-stg-01 a partir do R2 (REQ-FND-052)
+        env:
+          TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_HOST: ${{ vars.DB_SSH_HOST }}
+          SSH_KNOWN_HOSTS: ${{ vars.DB_SSH_KNOWN_HOSTS }}
+        run: |
+          sh infra/host/koovela-deploy/ssh-exec.sh "sudo systemctl start koovela-restore-test.service; cat /var/lib/koovela/restore-tests/$(date -u +%Y-%m).md" > record.md || true
+          month=$(date -u +%Y-%m); mkdir -p docs/ops/restore-tests; cp record.md "docs/ops/restore-tests/${month}.md"
+      - name: abrir PR com o registro (revisão do SRE)
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          month=$(date -u +%Y-%m); git checkout -b "999-restore-test-${month}"
+          git -c user.name="koovela-bot" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -am "docs(ops): teste de restauração ${month}" || git add docs && git -c user.name="koovela-bot" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "docs(ops): teste de restauração ${month}"
+          git push -u origin HEAD && gh pr create --fill --label ops
+          grep -q '^result: success' "docs/ops/restore-tests/${month}.md"

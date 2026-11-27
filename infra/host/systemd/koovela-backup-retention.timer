@@ -1,0 +1,10 @@
+[Unit]
+Description=Koovela: retenção restic (agenda)
+
+[Timer]
+OnCalendar=Sun *-*-* 07
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

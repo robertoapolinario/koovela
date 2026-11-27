@@ -1,0 +1,3 @@
+#!/bin/sh
+# stub: registra as chamadas
+echo "docker $*" >> "$STATE_DIR/docker.calls"

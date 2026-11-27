@@ -1,0 +1,8 @@
+public/.well-known/security.txt
+build/
+.react-router/
+test-results/
+playwright-report/
+.lighthouseci/
+public/.well-known/assetlinks.json
+public/.well-known/apple-app-site-association

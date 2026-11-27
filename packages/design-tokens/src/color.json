@@ -1,0 +1,168 @@
+{
+  "$description": "Cores (data-model §3.1; Figma 01 · Fundamentos e Componentes — PEN-01 ASSUMIDO). Trocar valor não muda nome.",
+  "color": {
+    "$type": "color",
+    "brand": {
+      "terracota": {
+        "DEFAULT": {
+          "$value": "#B5532F"
+        },
+        "700": {
+          "$value": "#93421F"
+        },
+        "100": {
+          "$value": "#F6E3D9"
+        },
+        "50": {
+          "$value": "#FBF1EB"
+        }
+      },
+      "oliveira": {
+        "DEFAULT": {
+          "$value": "#3F4A2E"
+        },
+        "700": {
+          "$value": "#5A6646"
+        },
+        "100": {
+          "$value": "#E6E9DD"
+        }
+      },
+      "creme": {
+        "DEFAULT": {
+          "$value": "#F7EEDC"
+        },
+        "50": {
+          "$value": "#FBF7EE"
+        }
+      }
+    },
+    "neutral": {
+      "0": {
+        "$value": "#FFFFFF"
+      },
+      "50": {
+        "$value": "#FAF7F2"
+      },
+      "100": {
+        "$value": "#F2EDE4"
+      },
+      "200": {
+        "$value": "#E5DED2"
+      },
+      "300": {
+        "$value": "#CFC6B7"
+      },
+      "500": {
+        "$value": "#8C8476"
+      },
+      "700": {
+        "$value": "#4F4A41"
+      },
+      "900": {
+        "$value": "#22201B"
+      }
+    },
+    "feedback": {
+      "success": {
+        "DEFAULT": {
+          "$value": "#2F7A4B",
+          "$description": "Ícone e borda de aviso (≥ 3:1 sobre o fundo do aviso). O texto do aviso usa color.text.primary."
+        },
+        "bg": {
+          "$value": "#E3F1E7"
+        }
+      },
+      "warning": {
+        "DEFAULT": {
+          "$value": "#9A6412",
+          "$description": "Ícone e borda de aviso (≥ 3:1 sobre o fundo do aviso). O texto do aviso usa color.text.primary."
+        },
+        "bg": {
+          "$value": "#FBF0D9"
+        }
+      },
+      "error": {
+        "DEFAULT": {
+          "$value": "#A8201A",
+          "$description": "Ícone e borda de aviso (≥ 3:1 sobre o fundo do aviso). O texto do aviso usa color.text.primary."
+        },
+        "bg": {
+          "$value": "#F9E1DE"
+        }
+      },
+      "info": {
+        "DEFAULT": {
+          "$value": "#2C6A8A",
+          "$description": "Ícone e borda de aviso (≥ 3:1 sobre o fundo do aviso). O texto do aviso usa color.text.primary."
+        },
+        "bg": {
+          "$value": "#E1EEF5"
+        }
+      }
+    },
+    "text": {
+      "primary": {
+        "$value": "{color.neutral.900}"
+      },
+      "secondary": {
+        "$value": "{color.neutral.700}"
+      },
+      "on-brand": {
+        "$value": "{color.neutral.0}"
+      },
+      "brand": {
+        "$value": "{color.brand.terracota.700}"
+      },
+      "disabled": {
+        "$value": "{color.neutral.500}"
+      },
+      "on-dark-muted": {
+        "$value": "{color.neutral.200}"
+      }
+    },
+    "surface": {
+      "page": {
+        "$value": "{color.neutral.50}"
+      },
+      "card": {
+        "$value": "{color.neutral.0}"
+      },
+      "muted": {
+        "$value": "{color.neutral.100}"
+      },
+      "brand": {
+        "$value": "{color.brand.terracota.DEFAULT}"
+      },
+      "brand-subtle": {
+        "$value": "{color.brand.terracota.50}"
+      },
+      "nav": {
+        "$value": "{color.brand.oliveira.DEFAULT}"
+      },
+      "warm": {
+        "$value": "{color.brand.creme.DEFAULT}"
+      },
+      "nav-dark": {
+        "$value": "{color.neutral.900}",
+        "$description": "Barra lateral do back-office (tema escuro)"
+      },
+      "nav-dark-hover": {
+        "$value": "{color.neutral.700}"
+      }
+    },
+    "border": {
+      "default": {
+        "$value": "{color.neutral.200}"
+      },
+      "strong": {
+        "$value": "{color.neutral.300}",
+        "$description": "Divisória decorativa (não identifica componente)"
+      },
+      "input": {
+        "$value": "{color.neutral.500}",
+        "$description": "Borda de campo: ≥ 3:1 contra o fundo (WCAG 1.4.11)"
+      }
+    }
+  }
+}

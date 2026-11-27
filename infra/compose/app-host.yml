@@ -1,0 +1,106 @@
+# Host de aplicação (app-stg-01 / app-prod-01) — REQ-FND-029, D44.
+# Imagens SEMPRE por digest, vindas do release.json (koovela-deploy grava /var/lib/koovela/images.env).
+# Entrada só pelo cloudflared (nenhuma porta publicada no host — REQ-FND-033).
+# Segredos: Docker secrets em /etc/koovela/secrets/<nome>, sincronizados do OCI Vault (REQ-FND-081).
+name: koovela
+
+x-app: &app
+  restart: unless-stopped
+  init: true
+  read_only: true
+  tmpfs: [/tmp]
+  security_opt: ['no-new-privileges:true']
+  cap_drop: [ALL]
+  env_file: [/etc/koovela/app.env]
+  networks: [app]
+  logging:
+    driver: json-file
+    options: { max-size: 20m, max-file: '5' }
+
+x-secrets-common: &secrets-common
+  - rabbitmq_url
+  - redis_url
+  - sentry_dsn
+
+services:
+
+  traefik:
+    image: traefik@sha256:00c9734983e74ae35a1fc18eaee9e9da13f3dde95c4e45b3b8c3b60e0dbd2d17 # traefik:v3.8
+    command:
+      - --entrypoints.web.address=:8000
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --ping=true
+      - --accesslog=true
+      - --accesslog.format=json
+      - --entrypoints.metrics.address=:8082
+      - --metrics.prometheus=true
+      - --metrics.prometheus.entrypoint=metrics
+    volumes: ['./traefik/host.yml:/etc/traefik/dynamic.yml:ro']
+    ports: ['127.0.0.1:8000:8000', '${PRIVATE_IP:?}:8082:8082'] # entrada só pelo cloudflared local; métricas só na VCN
+    restart: unless-stopped
+    networks: [app]
+    healthcheck: { test: ['CMD', 'traefik', 'healthcheck', '--ping'], interval: 10s, timeout: 3s, retries: 3 }
+    deploy: { resources: { limits: { memory: 256m } } }
+
+  gateway:
+    <<: *app
+    image: ${IMAGE_GATEWAY:?}
+    environment: { KOOVELA_PROCESS: gateway, KOOVELA_DOMAINS: '' }
+    secrets: [rabbitmq_url, redis_url, sentry_dsn, mysql_password_gateway]
+    deploy: { resources: { limits: { memory: 512m, cpus: '0.5' } } }
+
+  core:
+    <<: *app
+    image: ${IMAGE_CORE:?}
+    environment: { KOOVELA_PROCESS: core, KOOVELA_DOMAINS: '${CORE_DOMAINS:-platform}' }
+    ports: ['${PRIVATE_IP:?}:8081:8080'] # só VCN: webhook do Alertmanager (incidentes, T130)
+    secrets: [rabbitmq_url, redis_url, sentry_dsn, mysql_password_platform, alertmanager_webhook_token]
+    deploy: { resources: { limits: { memory: 1536m, cpus: '1.0' } } }
+
+  workers:
+    <<: *app
+    image: ${IMAGE_WORKERS:?}
+    environment: { KOOVELA_PROCESS: workers, KOOVELA_DOMAINS: '${WORKER_DOMAINS:-platform}' }
+    secrets: [rabbitmq_url, redis_url, sentry_dsn, mysql_password_platform]
+    deploy: { resources: { limits: { memory: 1024m, cpus: '0.5' } } }
+
+  consumer-web:
+    <<: *app
+    image: ${IMAGE_CONSUMER_WEB:?}
+    deploy: { resources: { limits: { memory: 512m, cpus: '0.5' } } }
+
+  tenant-web:
+    <<: *app
+    image: ${IMAGE_TENANT_WEB:?}
+    deploy: { resources: { limits: { memory: 128m } } }
+
+  admin-web:
+    <<: *app
+    image: ${IMAGE_ADMIN_WEB:?}
+    deploy: { resources: { limits: { memory: 128m } } }
+
+  bi-placeholder:
+    <<: *app
+    image: ${IMAGE_BI_PLACEHOLDER:?}
+    deploy: { resources: { limits: { memory: 64m } } }
+
+  node-exporter:
+    image: prom/node-exporter@sha256:7296504d4ada44b7d7ab4431e27e9f9900d8488f8d55842f4b12ae2704e16dfe # node-exporter:v1.13.1
+    command: ['--path.rootfs=/host', '--collector.textfile.directory=/textfile']
+    pid: host
+    ports: ['${PRIVATE_IP:?}:9100:9100'] # só VCN: scrape do Prometheus
+    volumes: ['/:/host:ro,rslave', '/var/lib/koovela/metrics:/textfile:ro']
+    restart: unless-stopped
+    networks: [app]
+    deploy: { resources: { limits: { memory: 64m } } }
+
+secrets:
+  rabbitmq_url: { file: /etc/koovela/secrets/rabbitmq_url }
+  redis_url: { file: /etc/koovela/secrets/redis_url }
+  sentry_dsn: { file: /etc/koovela/secrets/sentry_dsn }
+  mysql_password_gateway: { file: /etc/koovela/secrets/mysql_password_gateway }
+  mysql_password_platform: { file: /etc/koovela/secrets/mysql_password_platform }
+  alertmanager_webhook_token: { file: /etc/koovela/secrets/alertmanager_webhook_token }
+
+networks:
+  app:

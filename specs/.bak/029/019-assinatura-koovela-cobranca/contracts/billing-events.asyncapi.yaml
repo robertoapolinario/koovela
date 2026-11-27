@@ -1,0 +1,49 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Billing — eventos (spec 019)
+  version: 1.0.0
+  description: >
+    Outbox do billing → billing.events. Consome payments.payment.{approved,on_site_recorded}.v1 e payments.refund.succeeded.v1 (012),
+    scheduling.appointment.{completed,cancelled_*}.v1 (009), notification.delivery.* (SMS faturável, 011),
+    growth.trial.* e growth.concession.* (021). Comanda tenancy.tenant.{suspend,reactivate,archive} (002).
+defaultContentType: application/json
+channels:
+  billingEvents:
+    address: billing.events
+    messages:
+      subscriptionChanged: { $ref: '#/components/messages/SubscriptionChanged' }
+      invoiceChanged: { $ref: '#/components/messages/InvoiceChanged' }
+      planVersionChanged: { $ref: '#/components/messages/PlanVersionChanged' }
+operations:
+  publishBillingEvents:
+    action: send
+    channel: { $ref: '#/channels/billingEvents' }
+components:
+  messages:
+    SubscriptionChanged:
+      name: billing.subscription.changed
+      summary: >
+        event_type ∈ billing.subscription.{trialing,activated,plan_changed,past_due,restricted,suspended,reactivated,
+        cancel_scheduled,ended,trial_ending,card_expiring,retry_failed,end_warning}.v1 — invalida o cache de entitlements
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              subscription_id: { type: string, format: uuid }
+              state: { type: string }
+              plan_version_id: { type: string, format: uuid }
+    InvoiceChanged:
+      name: billing.invoice.changed
+      summary: event_type ∈ billing.invoice.{issued,pix_sent,paid,past_due,cancelled,credited}.v1 — paid dispara a nota da Koovela (017)
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data: { type: object, properties: { invoice_id: { type: string, format: uuid }, total_cents: { type: integer }, due_on: { type: string, format: date } } }
+    PlanVersionChanged:
+      name: billing.plan_version.changed
+      summary: event_type ∈ billing.plan_version.{proposed,approved,effective}.v1 — approved com aumento avisa os tenants (30 dias)
+      payload: { type: object, properties: { data: { type: object, properties: { version_id: { type: string, format: uuid }, effective_from: { type: string, format: date } } } } }

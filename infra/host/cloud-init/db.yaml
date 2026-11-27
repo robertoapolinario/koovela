@@ -1,0 +1,52 @@
+#cloud-config
+# Host db-host (Ubuntu 24.04 ARM64). Sem porta de entrada: acesso administrativo só por cloudflared (Access + MFA).
+package_update: true
+package_upgrade: true
+packages: [ca-certificates, curl, gnupg, jq, git, unattended-upgrades, python3-venv, restic, mysql-client, gettext-base]
+users:
+  - default
+  - name: koovela
+    groups: [docker]
+    shell: /bin/bash
+    sudo: ['ALL=(root) NOPASSWD: /usr/local/bin/koovela-deploy, /usr/bin/systemctl start koovela-restore-test.service']
+write_files:
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+  - path: /etc/ssh/sshd_config.d/10-koovela.conf
+    content: |
+      PasswordAuthentication no
+      PermitRootLogin no
+      ListenAddress 127.0.0.1
+runcmd:
+  # Docker Engine + Compose v2 (repositório oficial)
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  - echo "deb [arch=arm64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list
+  - apt-get update && apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+  # cosign (verificação de assinatura das imagens)
+  - curl -fsSL -o /usr/local/bin/cosign https://github.com/sigstore/cosign/releases/download/v3.1.6/cosign-linux-arm64
+  - echo "bbb2ebc765f483cf9fac42da8763dddc2b55b350ee12ea0c44a520a6d6d52334  /usr/local/bin/cosign" | sha256sum -c - && chmod 0755 /usr/local/bin/cosign
+  # OCI CLI (leitura dos segredos com instance principal)
+  - python3 -m venv /opt/oci-cli && /opt/oci-cli/bin/pip install --quiet oci-cli && ln -sf /opt/oci-cli/bin/oci /usr/local/bin/oci
+  # código de operação do repositório público (compose, scripts, systemd)
+  - git clone --depth 1 https://github.com/robertoapolinario/koovela.git /opt/koovela
+  - install -m 0755 /opt/koovela/infra/host/koovela-deploy/koovela-deploy /usr/local/bin/koovela-deploy
+  - install -m 0755 /opt/koovela/infra/host/koovela-deploy/secrets.sh /usr/local/bin/koovela-sync-secrets
+  - install -d -m 0750 -o root -g docker /etc/koovela
+  - install -d -m 0750 -o koovela -g koovela /var/lib/koovela /var/lib/koovela/metrics
+  - cp /opt/koovela/infra/host/systemd/*.service /opt/koovela/infra/host/systemd/*.timer /etc/systemd/system/
+  - systemctl daemon-reload
+  - systemctl enable --now docker koovela-secrets.timer
+  - /usr/local/bin/koovela-sync-secrets && systemctl enable --now koovela-tunnel.service
+  - install -d -m 0750 /srv/koovela /srv/koovela/mysql /srv/koovela/binlog-ship
+  - install -m 0755 /opt/koovela/infra/host/backup/*.sh /usr/local/bin/
+  # Node 24 (mesma versão do .nvmrc) para as ferramentas de operação (restore-test)
+  - curl -fsSL -o /tmp/node.tar.xz https://nodejs.org/dist/v24.22.3/node-v24.22.3-linux-arm64.tar.xz
+  - echo "6e51a2ada00f0011cc266f65d98922b403d7ad88f809ca2aa615a5fe1ce6e86c  /tmp/node.tar.xz" | sha256sum -c - && tar -xJf /tmp/node.tar.xz -C /opt && ln -sf /opt/node-v24.22.3-linux-arm64/bin/node /usr/local/bin/node && ln -sf /opt/node-v24.22.3-linux-arm64/bin/corepack /usr/local/bin/corepack
+  # MySQL Shell (util.dumpInstance) do repositório oficial da Oracle
+  - curl -fsSL https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 | gpg --dearmor -o /etc/apt/keyrings/mysql.gpg
+  - echo "deb [signed-by=/etc/apt/keyrings/mysql.gpg] http://repo.mysql.com/apt/ubuntu noble mysql-tools" > /etc/apt/sources.list.d/mysql.list
+  - apt-get update && apt-get install -y mysql-shell
+  - systemctl enable koovela-data.service koovela-backup-daily.timer koovela-binlog-ship.timer koovela-backup-retention.timer koovela-backup-metrics.timer koovela-edge-scan.timer

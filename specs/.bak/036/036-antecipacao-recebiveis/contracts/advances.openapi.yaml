@@ -1,0 +1,217 @@
+openapi: 3.1.0
+info:
+  title: Koovela Finance — antecipação de recebíveis (spec 036)
+  version: 1.0.0
+  description: >
+    Spec 036. x-koovela-action em toda operação; tenant resolvido no gateway.
+    Tudo atrás das flags finance.advances e finance.advances.commission (004).
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/tenant/finance/advances/overview:
+    get:
+      operationId: getBusinessAdvanceOverview
+      x-koovela-action: finance.advances.read
+      responses:
+        '200':
+          description: Agenda, disponível, histórico, saldo devedor e elegibilidade
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  eligible: { type: boolean }
+                  ineligible_reasons:
+                    type: array
+                    items: { type: string, enum: [payee_not_verified, invoice_overdue, open_debt, vertical_excluded, bank_change_72h, daily_limit_reached, insufficient_history, feature_disabled, tenant_suspended] }
+                  schedule: { type: array, items: { $ref: '#/components/schemas/ReceivableDay' } }
+                  available_cents: { type: integer }
+                  open_debt_cents: { type: integer }
+                  partner_notice: { type: [object, 'null'], properties: { version: { type: string }, text: { type: string } }, description: Presente se ainda não aceito }
+  /v1/tenant/finance/advances/quotes:
+    post:
+      operationId: quoteBusinessAdvance
+      x-koovela-action: finance.advances.quote
+      requestBody:
+        content: { application/json: { schema: { $ref: '#/components/schemas/QuoteInput' } } }
+      responses:
+        '201': { content: { application/json: { schema: { $ref: '#/components/schemas/Quote' } } }, description: Simulação válida por 10 min }
+        '422': { description: 'finance.ineligible (com motivos) | finance.amount_exceeds_available' }
+        '503': { description: 'finance.partner_unavailable — "indisponível no momento"' }
+  /v1/tenant/finance/advances:
+    get:
+      operationId: listBusinessAdvances
+      x-koovela-action: finance.advances.read
+      responses:
+        '200': { description: Histórico }
+    post:
+      operationId: confirmBusinessAdvance
+      x-koovela-action: finance.advances.confirm
+      x-koovela-step-up: required
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        content: { application/json: { schema: { $ref: '#/components/schemas/ConfirmInput' } } }
+      responses:
+        '201': { content: { application/json: { schema: { $ref: '#/components/schemas/Advance' } } }, description: requested (ou estado final se já respondido) }
+        '409': { description: 'finance.quote_expired | finance.quote_already_used' }
+        '422': { description: 'finance.ineligible | finance.partner_notice_not_acked' }
+  /v1/tenant/finance/settings:
+    put:
+      operationId: setFinanceSettings
+      x-koovela-action: finance.settings.write
+      description: Só Proprietário; auditado
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [allow_commission_advance], properties: { allow_commission_advance: { type: boolean } } } } }
+      responses:
+        '200': { description: Salvo }
+  /v1/tenant/finance/professional-advances:
+    get:
+      operationId: listProfessionalAdvancesForOwner
+      x-koovela-action: finance.advances.professional.read
+      description: Proprietário vê colaborador, extrato e valor antecipado; nunca taxas nem CET
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { type: object, properties: { professional_id: { type: string, format: uuid }, statement_id: { type: string, format: uuid }, gross_cents: { type: integer }, credited_at: { type: string, format: date-time } } } }
+          description: Lista sem custos
+  /v1/pro/finance/commission-advance/overview:
+    get:
+      operationId: getCommissionAdvanceOverview
+      x-koovela-action: pro.finance.advances.read
+      responses:
+        '200':
+          description: Extratos aprovados com parte antecipável (split futuro) e não antecipável (manual)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  eligible: { type: boolean }
+                  ineligible_reasons: { type: array, items: { type: string } }
+                  statements:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        statement_id: { type: string, format: uuid }
+                        period: { type: string }
+                        payout_expected_on: { type: string, format: date }
+                        advanceable_cents: { type: integer }
+                        not_advanceable_cents: { type: integer }
+  /v1/pro/finance/commission-advance/quotes:
+    post:
+      operationId: quoteCommissionAdvance
+      x-koovela-action: pro.finance.advances.quote
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/QuoteInput'
+                - { type: object, required: [statement_id], properties: { statement_id: { type: string, format: uuid } } }
+      responses:
+        '201': { content: { application/json: { schema: { $ref: '#/components/schemas/Quote' } } }, description: Simulação }
+        '422': { description: 'finance.statement_not_approved | finance.ineligible' }
+  /v1/pro/finance/commission-advance:
+    post:
+      operationId: confirmCommissionAdvance
+      x-koovela-action: pro.finance.advances.confirm
+      x-koovela-step-up: required
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        content: { application/json: { schema: { $ref: '#/components/schemas/ConfirmInput' } } }
+      responses:
+        '201': { content: { application/json: { schema: { $ref: '#/components/schemas/Advance' } } }, description: requested; Proprietário avisado no crédito }
+  /v1/admin/finance/advances/config:
+    get:
+      operationId: listAdvanceConfig
+      x-koovela-action: admin.finance.advances.read
+      responses:
+        '200': { description: Versões }
+    post:
+      operationId: proposeAdvanceConfig
+      x-koovela-action: admin.finance.advances.config.propose
+      responses:
+        '201': { description: proposed }
+  /v1/admin/finance/advances/config/{version_id}/approve:
+    post:
+      operationId: approveAdvanceConfig
+      x-koovela-action: admin.finance.advances.config.approve
+      x-koovela-step-up: required
+      parameters:
+        - { name: version_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Aprovada por pessoa diferente do proponente }
+  /v1/admin/finance/advances/dashboard:
+    get:
+      operationId: getAdvanceDashboard
+      x-koovela-action: admin.finance.advances.read
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+      responses:
+        '200': { description: Volume, receita da Koovela, recusas, saldos devedores e divergências por dia }
+  /v1/admin/finance/advances/reconciliation-issues/{issue_id}/resolve:
+    post:
+      operationId: resolveReconciliationIssue
+      x-koovela-action: admin.finance.reconciliation.resolve
+      parameters:
+        - { name: issue_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [justification], properties: { justification: { type: string, minLength: 10 } } } } }
+      responses:
+        '200': { description: Resolvida, auditada }
+  /webhooks/advances/{partner}:
+    post:
+      operationId: advancePartnerWebhook
+      x-koovela-action: internal.finance.advances.webhook
+      parameters:
+        - { name: partner, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Assinatura verificada; deduplicado por partner_event_id }
+components:
+  schemas:
+    ReceivableDay:
+      type: object
+      properties:
+        settles_on: { type: string, format: date }
+        free_cents: { type: integer }
+        ceded_cents: { type: integer }
+    QuoteInput:
+      type: object
+      description: Nenhum valor pré-selecionado na interface
+      properties:
+        amount_cents: { type: [integer, 'null'], minimum: 1 }
+        settle_dates: { type: [array, 'null'], items: { type: string, format: date } }
+    Quote:
+      type: object
+      properties:
+        quote_id: { type: string, format: uuid }
+        gross_cents: { type: integer }
+        partner_fee_cents: { type: integer }
+        koovela_fee_cents: { type: integer }
+        net_cents: { type: integer }
+        cet_month_pct: { type: string, description: 'Ex.: "2,35"' }
+        cet_year_pct: { type: string }
+        credit_on: { type: string, format: date }
+        expires_at: { type: string, format: date-time }
+    ConfirmInput:
+      type: object
+      required: [quote_id]
+      properties:
+        quote_id: { type: string, format: uuid }
+        partner_notice_version: { type: [string, 'null'] }
+    Advance:
+      type: object
+      properties:
+        advance_id: { type: string, format: uuid }
+        state: { type: string, enum: [requested, approved, credited, declined, failed] }
+        net_cents: { type: integer }
+        credit_on: { type: string, format: date }
+        decline_reason: { type: [string, 'null'] }

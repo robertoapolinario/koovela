@@ -1,0 +1,33 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Engagement — eventos de CRM (spec 028)
+  version: 1.0.0
+  description: >
+    Consome notification.delivery.* (011) para resultados; scheduling.appointment.* (009) e payments.* (012) para atribuição;
+    records (020) para segmentos. Publica engagement.events (consumido por 019 para excedente, 021 para revisão, 022 para consentimentos, 023 BI).
+defaultContentType: application/json
+channels:
+  engagementEvents:
+    address: engagement.events
+    messages:
+      consentChanged: { $ref: '#/components/messages/ConsentChanged' }
+      campaignChanged: { $ref: '#/components/messages/CampaignChanged' }
+      usageRecorded: { $ref: '#/components/messages/UsageRecorded' }
+operations:
+  publishCrmEvents:
+    action: send
+    channel: { $ref: '#/channels/engagementEvents' }
+components:
+  messages:
+    ConsentChanged:
+      name: engagement.marketing_consent.changed
+      summary: event_type ∈ engagement.marketing_consent.{granted,revoked}.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { consumer_id: { type: string, format: uuid }, business_id: { type: string, format: uuid }, channel: { type: string } } } } }
+    CampaignChanged:
+      name: engagement.campaign.changed
+      summary: event_type ∈ engagement.campaign.{scheduled,sending,sent,paused,cancelled,blocked}.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { campaign_id: { type: string, format: uuid }, state: { type: string }, reason: { type: [string, 'null'] } } } } }
+    UsageRecorded:
+      name: engagement.crm_usage.recorded.v1
+      summary: Envios além da cota por canal (item de uso na fatura da 019)
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { month: { type: string }, channel: { type: string }, overage_count: { type: integer } } } } }

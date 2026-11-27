@@ -1,0 +1,17 @@
+[Unit]
+Description=Koovela: banco, fila, cache e observabilidade
+Requires=docker.service
+After=docker.service koovela-secrets.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/koovela/infra/compose
+EnvironmentFile=/etc/koovela/data.env
+# Prometheus e Alertmanager não expandem ${VAR}: renderiza com o data.env (KOOVELA_ENV, APP_HOST_IP).
+ExecStartPre=/bin/sh -c 'mkdir -p /etc/koovela/observability && for f in prometheus.yml alertmanager.yml; do envsubst "$$KOOVELA_ENV $$APP_HOST_IP" < /opt/koovela/infra/observability/$$f > /etc/koovela/observability/$$f; done'
+ExecStart=/usr/bin/docker compose -f db-host.yml up -d
+ExecStop=/usr/bin/docker compose -f db-host.yml stop
+
+[Install]
+WantedBy=multi-user.target

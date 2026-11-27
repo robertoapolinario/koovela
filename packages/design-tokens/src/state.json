@@ -1,0 +1,100 @@
+{
+  "$description": "Estados de componente (REQ-FND-060), derivados das cores. Conferir com get_design_context no Figma (Botão, Campo, Chip).",
+  "state": {
+    "hover": {
+      "$type": "color",
+      "brand": {
+        "$value": "{color.brand.terracota.700}"
+      },
+      "nav": {
+        "$value": "{color.brand.oliveira.700}"
+      },
+      "neutral": {
+        "$value": "{color.neutral.100}"
+      }
+    },
+    "focus": {
+      "ring": {
+        "$type": "color",
+        "$value": "{color.brand.oliveira.DEFAULT}"
+      },
+      "ring-width": {
+        "$type": "dimension",
+        "$value": "2px"
+      },
+      "ring-offset": {
+        "$type": "dimension",
+        "$value": "2px"
+      }
+    },
+    "disabled": {
+      "$type": "color",
+      "bg": {
+        "$value": "{color.neutral.100}"
+      },
+      "fg": {
+        "$value": "{color.neutral.500}"
+      },
+      "border": {
+        "$value": "{color.neutral.200}"
+      }
+    },
+    "loading": {
+      "opacity": {
+        "$type": "number",
+        "$value": 0.6
+      }
+    }
+  },
+  "radius": {
+    "$type": "dimension",
+    "sm": {
+      "$value": "6px"
+    },
+    "md": {
+      "$value": "10px"
+    },
+    "lg": {
+      "$value": "16px"
+    },
+    "pill": {
+      "$value": "999px"
+    }
+  },
+  "space": {
+    "$type": "dimension",
+    "1": {
+      "$value": "4px"
+    },
+    "2": {
+      "$value": "8px"
+    },
+    "3": {
+      "$value": "12px"
+    },
+    "4": {
+      "$value": "16px"
+    },
+    "5": {
+      "$value": "24px"
+    },
+    "6": {
+      "$value": "32px"
+    },
+    "7": {
+      "$value": "48px"
+    }
+  },
+  "size": {
+    "$type": "dimension",
+    "touch-target": {
+      "$value": "44px"
+    },
+    "sidebar": {
+      "$value": "264px"
+    },
+    "topbar": {
+      "$value": "64px"
+    }
+  }
+}

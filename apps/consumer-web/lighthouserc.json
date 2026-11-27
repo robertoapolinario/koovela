@@ -1,0 +1,24 @@
+{
+  "ci": {
+    "collect": {
+      "startServerCommand": "PORT=4180 NODE_ENV=production node server.ts",
+      "startServerReadyPattern": "consumer-web em",
+      "url": ["http://koovela.localhost:4180/", "http://koovela.localhost:4180/salao-agata"],
+      "numberOfRuns": 3,
+      "settings": {
+        "preset": "perf",
+        "formFactor": "mobile",
+        "screenEmulation": { "mobile": true, "width": 412, "height": 823, "deviceScaleFactor": 1.75, "disabled": false },
+        "throttlingMethod": "simulate",
+        "throttling": { "rttMs": 150, "throughputKbps": 1638.4, "cpuSlowdownMultiplier": 4 },
+        "chromeFlags": "--no-sandbox --host-resolver-rules=\"MAP koovela.localhost 127.0.0.1\""
+      }
+    },
+    "assert": {
+      "assertions": {
+        "largest-contentful-paint": ["error", { "maxNumericValue": 2500, "aggregationMethod": "median" }]
+      }
+    },
+    "upload": { "target": "filesystem", "outputDir": ".lighthouseci" }
+  }
+}

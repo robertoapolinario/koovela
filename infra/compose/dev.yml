@@ -1,0 +1,182 @@
+# Ambiente local completo (REQ-FND-001/002/004). Suba com `pnpm koovela up`.
+# Imagens base por digest (nunca `latest`); o Dependabot atualiza.
+name: koovela
+
+x-node: &node
+  image: node@sha256:873f586f3794f52281bd039bf02c048a0be08fde619338f9941bad1eb6b34530 # node:24.22.3-bookworm-slim
+  working_dir: /repo
+  volumes:
+    - ../..:/repo
+  env_file:
+    - path: ../../.env
+      required: true
+  environment: &node-env
+    KOOVELA_ENV: local
+    MYSQL_HOST: mysql
+    COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+  restart: unless-stopped
+  init: true
+  networks: [koovela]
+
+x-health-http: &health-http
+  interval: 5s
+  timeout: 3s
+  retries: 30
+  start_period: 10s
+
+services:
+  mysql:
+    image: mysql@sha256:0f51e63e537a1f176423fa03ef559aabe6fa4372a53160a44bc7e75da7d15364 # mysql:8.4.11
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
+      - --binlog-format=ROW
+      - --gtid-mode=ON
+      - --enforce-gtid-consistency=ON
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_MIGRATOR_PASSWORD:?rode pnpm koovela up para gerar o .env}
+    volumes: [mysql-data:/var/lib/mysql]
+    healthcheck:
+      test: ['CMD-SHELL', 'mysqladmin ping -h 127.0.0.1 -uroot -p"$$MYSQL_ROOT_PASSWORD" --silent']
+      interval: 5s
+      timeout: 3s
+      retries: 60
+    networks: [koovela]
+
+  redis:
+    image: redis@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2 # redis:7.4.10-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks: [koovela]
+
+  rabbitmq:
+    image: rabbitmq@sha256:f33dc8cef83be952791356850d88b965111d11ec736133b58acc5e5103efc9f4 # rabbitmq:4.2.3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: koovela
+      RABBITMQ_DEFAULT_PASS: koovela-dev
+    volumes: [rabbitmq-data:/var/lib/rabbitmq]
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'check_port_connectivity']
+      interval: 5s
+      timeout: 10s
+      retries: 60
+    networks: [koovela]
+
+  traefik:
+    image: traefik@sha256:00c9734983e74ae35a1fc18eaee9e9da13f3dde95c4e45b3b8c3b60e0dbd2d17 # traefik:v3.8
+    command:
+      - --entrypoints.web.address=:80
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --providers.file.watch=true
+      - --ping=true
+      - --log.level=WARN
+    ports: ['${KOOVELA_HTTP_PORT:-80}:80']
+    volumes: ['./traefik/dev.yml:/etc/traefik/dynamic.yml:ro']
+    healthcheck:
+      test: ['CMD', 'traefik', 'healthcheck', '--ping']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks: [koovela]
+
+  # --- tarefas pontuais (pnpm koovela up as executa em ordem) ---
+  migrate:
+    <<: *node
+    profiles: [tasks]
+    restart: 'no'
+    environment:
+      <<: *node-env
+      KOOVELA_DOMAINS: platform,gateway
+    command: ['node', 'infra/migrations/src/cli.ts']
+    depends_on: { mysql: { condition: service_healthy } }
+
+  seed:
+    <<: *node
+    profiles: [tasks]
+    restart: 'no'
+    environment:
+      <<: *node-env
+      KOOVELA_DOMAINS: platform
+    command: ['node', 'tools/koovela-cli/src/seed.ts']
+    depends_on: { mysql: { condition: service_healthy } }
+
+  # --- processos (D44) ---
+  gateway:
+    <<: *node
+    command: ['node', '--watch-path=services', '--watch-path=runtimes', '--watch-path=packages', 'services/gateway/src/main.ts']
+    environment:
+      <<: *node-env
+      KOOVELA_PROCESS: gateway
+      KOOVELA_DOMAINS: ''
+      CORE_URL: http://core:8080
+    healthcheck:
+      <<: *health-http
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:8080/livez').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  core:
+    <<: *node
+    command: ['node', '--watch-path=services', '--watch-path=runtimes', '--watch-path=packages', 'runtimes/core/src/main.ts']
+    environment:
+      <<: *node-env
+      KOOVELA_PROCESS: core
+      KOOVELA_DOMAINS: platform
+    healthcheck:
+      <<: *health-http
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:8080/livez').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+    depends_on: { mysql: { condition: service_healthy } }
+
+  workers:
+    <<: *node
+    command: ['node', '--watch-path=services', '--watch-path=runtimes', '--watch-path=packages', 'runtimes/workers/src/main.ts']
+    environment:
+      <<: *node-env
+      KOOVELA_PROCESS: workers
+      KOOVELA_DOMAINS: platform
+    healthcheck:
+      <<: *health-http
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:8080/').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+    depends_on:
+      mysql: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  # --- webs (Vite em modo dev) ---
+  consumer-web:
+    <<: *node
+    entrypoint: ['sh', '-c', 'corepack enable >/dev/null 2>&1; exec pnpm --filter @koovela/consumer-web dev']
+    healthcheck:
+      <<: *health-http
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:5173/').then(r=>process.exit(r.status<500?0:1),()=>process.exit(1))"]
+
+  tenant-web:
+    <<: *node
+    entrypoint: ['sh', '-c', 'corepack enable >/dev/null 2>&1; exec pnpm --filter @koovela/tenant-web dev']
+    command: []
+    healthcheck:
+      <<: *health-http
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:5173/').then(r=>process.exit(r.status<500?0:1),()=>process.exit(1))"]
+
+  admin-web:
+    <<: *node
+    entrypoint: ['sh', '-c', 'corepack enable >/dev/null 2>&1; exec pnpm --filter @koovela/admin-web dev']
+    command: []
+    healthcheck:
+      <<: *health-http
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:5173/').then(r=>process.exit(r.status<500?0:1),()=>process.exit(1))"]
+
+volumes:
+  mysql-data:
+  redis-data:
+  rabbitmq-data:
+
+networks:
+  koovela:

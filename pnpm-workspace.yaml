@@ -1,0 +1,10 @@
+packages:
+  - apps/*
+  - services/*
+  - runtimes/*
+  - packages/*
+  - packages/platform/*
+  - tools/*
+  - infra/migrations
+  - infra/host/koovela-deploy
+  - infra/observability

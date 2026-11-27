@@ -1,0 +1,63 @@
+/* Estilos base dos shells web. Só tokens (var(--…)); nenhum valor de design literal (REQ-FND-061). */
+@import '@koovela/design-tokens/tokens.css';
+
+*, *::before, *::after { box-sizing: border-box; }
+html { font: var(--font-body); color: var(--color-text-primary); background: var(--color-surface-page); }
+body { margin: 0; }
+a { color: var(--color-text-brand); }
+:focus-visible { outline: var(--state-focus-ring-width) solid var(--state-focus-ring); outline-offset: var(--state-focus-ring-offset); }
+
+.kv-skip { position: absolute; left: var(--space-2); top: calc(-1 * var(--size-topbar)); padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-card); color: var(--color-text-primary); border-radius: var(--radius-sm); z-index: 10; }
+.kv-skip:focus { top: var(--space-2); }
+
+.kv-button { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  min-height: var(--size-touch-target); padding: 0 var(--space-4); border-radius: var(--radius-md); border: 0;
+  font: var(--font-button); cursor: pointer; background: var(--color-surface-brand); color: var(--color-text-on-brand); }
+.kv-button:hover { background: var(--state-hover-brand); }
+.kv-button[data-variant='secondary'] { background: var(--color-surface-card); color: var(--color-text-primary); box-shadow: inset 0 0 0 1px var(--color-border-input); }
+.kv-button[data-variant='secondary']:hover { background: var(--state-hover-neutral); }
+.kv-button:disabled, .kv-button[aria-disabled='true'] { background: var(--state-disabled-bg); color: var(--state-disabled-fg); cursor: not-allowed; }
+.kv-button[aria-busy='true'] { opacity: var(--state-loading-opacity); }
+
+.kv-field { display: grid; gap: var(--space-1); }
+.kv-field label { font: var(--font-body-strong); }
+.kv-field input { min-height: var(--size-touch-target); padding: 0 var(--space-3); font: var(--font-body);
+  border: 1px solid var(--color-border-input); border-radius: var(--radius-sm); background: var(--color-surface-card); color: var(--color-text-primary); }
+.kv-field input:disabled { background: var(--state-disabled-bg); color: var(--state-disabled-fg); border-color: var(--state-disabled-border); }
+.kv-field [role='alert'] { font: var(--font-small); color: var(--color-feedback-error); }
+
+.kv-chip { display: inline-flex; align-items: center; min-height: var(--size-touch-target); padding: 0 var(--space-3);
+  border-radius: var(--radius-pill); font: var(--font-small); background: var(--color-surface-muted); color: var(--color-text-primary);
+  border: 1px solid var(--color-border-default); }
+.kv-chip[aria-pressed='true'] { background: var(--color-surface-brand-subtle); border-color: var(--color-surface-brand); color: var(--color-text-brand); }
+
+.kv-sidebar-layout { display: grid; grid-template-columns: var(--size-sidebar) 1fr; min-height: 100vh; }
+.kv-sidebar { background: var(--color-surface-nav); color: var(--color-text-on-brand); padding: var(--space-4) var(--space-3); display: grid; align-content: start; gap: var(--space-4); }
+.kv-sidebar[data-theme='dark'] { background: var(--color-surface-nav-dark); }
+.kv-sidebar .kv-brand { font: var(--font-title-3); padding: 0 var(--space-3); margin: 0; }
+.kv-nav ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); }
+.kv-nav a { display: flex; align-items: center; min-height: var(--size-touch-target); padding: 0 var(--space-3); border-radius: var(--radius-sm);
+  color: inherit; text-decoration: none; font: var(--font-body-strong); }
+.kv-sidebar .kv-nav a:hover { background: var(--state-hover-nav); }
+.kv-sidebar[data-theme='dark'] .kv-nav a:hover, .kv-sidebar[data-theme='dark'] .kv-nav a[aria-current='page'] { background: var(--color-surface-nav-dark-hover); }
+.kv-sidebar .kv-nav a[aria-current='page'] { background: var(--state-hover-nav); box-shadow: inset 3px 0 0 var(--color-text-on-brand); }
+.kv-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); min-height: var(--size-topbar);
+  padding: 0 var(--space-5); background: var(--color-surface-card); border-bottom: 1px solid var(--color-border-default); }
+.kv-main { padding: var(--space-6) var(--space-5); }
+.kv-select { min-height: var(--size-touch-target); padding: 0 var(--space-3); font: var(--font-body); border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-input); background: var(--color-surface-card); color: var(--color-text-primary); }
+
+.kv-topbar { display: flex; align-items: center; gap: var(--space-5); min-height: var(--size-topbar); padding: 0 var(--space-5);
+  background: var(--color-surface-card); border-bottom: 1px solid var(--color-border-default); }
+.kv-topbar .kv-brand { font: var(--font-title-3); color: var(--color-text-brand); margin: 0; }
+.kv-topbar .kv-nav ul { display: flex; gap: var(--space-2); }
+.kv-topbar .kv-nav a { color: var(--color-text-primary); }
+.kv-topbar .kv-nav a:hover { background: var(--state-hover-neutral); }
+.kv-topbar .kv-nav a[aria-current='page'] { color: var(--color-text-brand); box-shadow: inset 0 -3px 0 var(--color-surface-brand); }
+
+.kv-empty { display: grid; gap: var(--space-3); place-items: start; }
+.kv-empty h1 { font: var(--font-title-1); margin: 0; }
+.kv-empty .kv-code { font: var(--font-number); color: var(--color-text-brand); }
+.kv-footer { padding: var(--space-3) var(--space-5); font: var(--font-small); color: var(--color-text-secondary); border-top: 1px solid var(--color-border-default); }
+.kv-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

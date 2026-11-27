@@ -1,0 +1,54 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Notification — eventos (spec 011)
+  version: 1.0.0
+  description: >
+    Consome scheduling.appointment.* (009), scheduling.policy_fee.* (010) e, mais tarde, payments.* (012)
+    e outros. Publica entrega e confirmação de presença. Sem conteúdo do aviso nos eventos.
+defaultContentType: application/json
+channels:
+  notificationEvents:
+    address: notification.events
+    messages:
+      deliveryChanged: { $ref: '#/components/messages/DeliveryChanged' }
+      attendanceConfirmed: { $ref: '#/components/messages/AttendanceConfirmed' }
+      quotaThresholdReached: { $ref: '#/components/messages/QuotaThreshold' }
+operations:
+  publishNotificationEvents:
+    action: send
+    channel: { $ref: '#/channels/notificationEvents' }
+components:
+  messages:
+    DeliveryChanged:
+      name: notification.delivery.changed
+      summary: event_type ∈ notification.delivery.{sent,delivered,failed,opened}.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: [string, 'null'], format: uuid }
+          data:
+            type: object
+            properties:
+              message_id: { type: string, format: uuid }
+              type_code: { type: string }
+              appointment_id: { type: [string, 'null'], format: uuid }
+              channel: { type: string, enum: [push, sms, email, whatsapp, browser, inbox] }
+              provider: { type: string }
+              failure_reason: { type: [string, 'null'] }
+              is_reminder: { type: boolean }
+    AttendanceConfirmed:
+      name: notification.attendance.confirmed.v1
+      summary: Consumido pela agenda (009) para mostrar a presença confirmada
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data: { type: object, properties: { appointment_id: { type: string, format: uuid }, channel: { type: string } } }
+    QuotaThreshold:
+      name: notification.quota.threshold_reached.v1
+      summary: 80% da cota de SMS/WhatsApp do plano (aviso ao Proprietário; fatura na 019)
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data: { type: object, properties: { channel: { type: string }, used: { type: integer }, quota: { type: integer } } }

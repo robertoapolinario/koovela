@@ -1,0 +1,33 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Discovery — eventos (spec 024)
+  version: 1.0.0
+  description: >
+    Consome business.* e participação (005), catalog.* (006), workforce.availability.changed.v1 (007),
+    scheduling.occupancy.* / disponibilidade (008), engagement.review.* (016), tenancy.tenant.* (002), billing.subscription.* (019).
+    Publica discovery.events.
+defaultContentType: application/json
+channels:
+  discoveryEvents:
+    address: discovery.events
+    messages:
+      participationChanged: { $ref: '#/components/messages/ParticipationChanged' }
+      regionChanged: { $ref: '#/components/messages/RegionChanged' }
+      listingReported: { $ref: '#/components/messages/ListingReported' }
+operations:
+  publishDiscoveryEvents:
+    action: send
+    channel: { $ref: '#/channels/discoveryEvents' }
+components:
+  messages:
+    ParticipationChanged:
+      name: discovery.participation.changed
+      summary: event_type ∈ discovery.participation.{invited,pending,activated,paused,left,removed}.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { branch_id: { type: string, format: uuid }, state: { type: string }, reason: { type: [string, 'null'] } } } } }
+    RegionChanged:
+      name: discovery.region.changed
+      summary: event_type ∈ discovery.region.{opened,closed,meets_minimum}.v1 — opened dispara convites (011) e avisos aos inscritos
+      payload: { type: object, properties: { data: { type: object, properties: { region_id: { type: string, format: uuid }, city_ibge: { type: string }, state: { type: string } } } } }
+    ListingReported:
+      name: discovery.listing.reported.v1
+      payload: { type: object, properties: { data: { type: object, properties: { report_id: { type: string, format: uuid }, branch_id: { type: string, format: uuid }, reason: { type: string } } } } }

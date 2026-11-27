@@ -1,0 +1,15 @@
+[Unit]
+Description=Koovela: teste de restauração a partir do R2 (só staging — REQ-FND-052)
+After=koovela-data.service
+ConditionPathExists=/etc/koovela/data.env
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/koovela/data.env
+Environment=GITHUB_WORKFLOW=nightly
+WorkingDirectory=/opt/koovela
+ExecStartPre=/usr/bin/git -C /opt/koovela pull -q --ff-only
+ExecStartPre=/usr/local/bin/corepack pnpm install --frozen-lockfile --prod --filter @koovela/ops...
+ExecStart=/usr/local/bin/node tools/ops/src/restore-test.ts --env ${KOOVELA_ENV} --out /var/lib/koovela/restore-tests
+TimeoutStartSec=5h
+SuccessExitStatus=0 1

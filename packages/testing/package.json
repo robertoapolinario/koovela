@@ -1,0 +1,28 @@
+{
+  "name": "@koovela/testing",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./containers": "./src/containers.ts",
+    "./seed": "./src/seed.ts",
+    "./a11y": "./src/a11y.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run --passWithNoTests --exclude '**/*.integration.test.ts' --exclude '**/*.int.test.ts' --exclude '**/e2e/**' --exclude '**/node_modules/**'"
+  },
+  "dependencies": {
+    "@faker-js/faker": "10.6.0",
+    "testcontainers": "12.2.2",
+    "@testcontainers/mysql": "12.2.2",
+    "@testcontainers/redis": "12.2.2",
+    "@testcontainers/rabbitmq": "12.2.2"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.1",
+    "@playwright/test": "1.65.1"
+  }
+}

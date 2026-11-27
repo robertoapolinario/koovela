@@ -1,0 +1,243 @@
+openapi: 3.1.0
+info:
+  title: Koovela Payments — checkout, split, estornos, saldos e financeiro
+  version: 1.0.0
+  description: >
+    Spec 012. Idempotency-Key em toda operação financeira; x-koovela-action em toda operação.
+    Dados de cartão nunca passam pela Koovela: só token do PSP.
+servers:
+  - url: https://api.koovela.com
+  - url: http://core.internal:8080
+paths:
+  /v1/consumer/appointments/{appointment_id}/payments:
+    post:
+      operationId: payAppointment
+      x-koovela-action: consumer.payment.create
+      parameters:
+        - { name: appointment_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [method]
+              properties:
+                method: { type: string, enum: [pix, card] }
+                card_token: { type: string, description: Token do PSP (novo) }
+                saved_card_id: { type: string, format: uuid }
+                save_card: { type: boolean }
+                consent_fee_on_saved_card: { type: boolean, description: Autorização para multa no cartão salvo (política 010) }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Payment' }
+          description: Pix com QR e copia-e-cola (expira com o hold) ou cartão em processamento
+        '429': { description: payments.card_attempts_limited }
+  /v1/consumer/cards:
+    get:
+      operationId: listSavedCards
+      x-koovela-action: consumer.card.list
+      responses:
+        '200': { description: Bandeira, final, validade e consentimentos }
+  /v1/consumer/cards/{card_id}:
+    delete:
+      operationId: removeSavedCard
+      x-koovela-action: consumer.card.remove
+      parameters: [ { name: card_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '204': { description: Removido (token apagado no PSP) }
+  /v1/consumer/balances:
+    get:
+      operationId: listMyBalances
+      x-koovela-action: consumer.balance.list
+      responses:
+        '200': { description: Saldos de sessões por estabelecimento, validade (tela nova) }
+  /v1/consumer/payment-requests/{request_id}:
+    get:
+      operationId: getPaymentRequest
+      x-koovela-action: consumer.payment_request.read
+      parameters: [ { name: request_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Restante ou diferença do "a partir de" a pagar pelo app }
+  /v1/tenant/payees:
+    post:
+      operationId: registerPayee
+      x-koovela-action: payments.payee.register
+      summary: Recebedor do negócio (level=business) ou do colaborador (level=professional, pelo próprio colaborador)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [level, owner_ref, bank_account]
+              properties:
+                level: { type: string, enum: [business, professional] }
+                owner_ref: { type: string, format: uuid }
+                bank_account: { type: object, properties: { bank: { type: string }, agency: { type: string }, account: { type: string }, type: { type: string, enum: [checking, savings, payment] } } }
+                documents: { type: array, items: { type: string, description: media_id } }
+      responses:
+        '201': { description: under_review no PSP }
+  /v1/tenant/payees/{payee_id}/bank-account:
+    put:
+      operationId: changeBankAccount
+      x-koovela-action: payments.payee.change_bank_account
+      parameters: [ { name: payee_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Step-up exigido; nova verificação; auditado; aviso ao Proprietário }
+  /v1/tenant/appointments/{appointment_id}/on-site-payments:
+    post:
+      operationId: recordOnSitePayment
+      x-koovela-action: payments.on_site.record
+      parameters:
+        - { name: appointment_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [method, amount]
+              properties:
+                method: { type: string, enum: [on_site_cash, on_site_card_terminal, on_site_pix, on_site_other] }
+                amount: { $ref: '#/components/schemas/Money' }
+      responses:
+        '201': { description: Registrado (sem PSP nem split; conta para comissão e financeiro) }
+  /v1/tenant/payments/{payment_id}/void:
+    post:
+      operationId: voidOnSitePayment
+      x-koovela-action: payments.on_site.void
+      parameters: [ { name: payment_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Anulado (equipe em 24 h; depois só Proprietário), auditado }
+  /v1/tenant/payments/{payment_id}/refunds:
+    post:
+      operationId: manualRefund
+      x-koovela-action: payments.refund.manual
+      parameters:
+        - { name: payment_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, reason]
+              properties:
+                amount: { $ref: '#/components/schemas/Money' }
+                reason: { type: string, minLength: 5 }
+      responses:
+        '201': { description: Estorno (step-up, auditado); desfaz o split na proporção }
+        '422': { description: payments.refund_exceeds_refundable }
+  /v1/tenant/payment-requests:
+    post:
+      operationId: createPaymentRequest
+      x-koovela-action: payments.payment_request.create
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [appointment_id, kind, amount]
+              properties:
+                appointment_id: { type: string, format: uuid }
+                kind: { type: string, enum: [remainder, difference] }
+                amount: { $ref: '#/components/schemas/Money' }
+      responses:
+        '201': { description: Pedido enviado ao consumidor (011) }
+  /v1/tenant/finance/summary:
+    get:
+      operationId: financeSummary
+      x-koovela-action: payments.finance.read
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+        - { name: branch_id, in: query, schema: { type: string, format: uuid } }
+        - { name: format, in: query, schema: { type: string, enum: [json, xlsx] } }
+      responses:
+        '200': { description: Recebido, a receber, taxas, estornos, chargebacks e split por pagamento (P21) }
+  /v1/internal/payments/balances/{account_id}/{op}:
+    post:
+      operationId: balanceOperation
+      x-koovela-action: internal.payments.balance.write
+      parameters:
+        - { name: account_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: op, in: path, required: true, schema: { type: string, enum: [reserve, consume, release] } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [appointment_id]
+              properties:
+                appointment_id: { type: string, format: uuid }
+      responses:
+        '200': { description: Lançamento aplicado }
+        '409': { description: payments.insufficient_balance }
+  /v1/internal/payments/metrics:
+    get:
+      operationId: monthlyMetrics
+      x-koovela-action: internal.payments.metrics.read
+      parameters: [ { name: month, in: query, required: true, schema: { type: string, pattern: '^[0-9]{4}-[0-9]{2}$' } } ]
+      responses:
+        '200': { description: GMV, take rate efetivo, taxas do PSP, atendimentos concluídos e pagos (018, 019, 023) }
+  /v1/admin/payments/reconciliation/issues:
+    get:
+      operationId: listReconciliationIssues
+      x-koovela-action: payments.reconciliation.read
+      responses:
+        '200': { description: Divergências abertas (tela nova) }
+  /v1/admin/payments/reconciliation/issues/{issue_id}/close:
+    post:
+      operationId: closeReconciliationIssue
+      x-koovela-action: payments.reconciliation.close
+      parameters: [ { name: issue_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [justification]
+              properties:
+                justification: { type: string, minLength: 10 }
+      responses:
+        '200': { description: Encerrada com justificativa (auditada) }
+  /v1/admin/payments/fee-config:
+    put:
+      operationId: setFeeConfig
+      x-koovela-action: payments.fee_config.update
+      responses:
+        '200': { description: Nova versão de take rate e taxas (sem valor fixo no código) }
+  /v1/webhooks/psp/{provider}:
+    post:
+      operationId: pspWebhook
+      x-koovela-action: public.payments.psp_webhook
+      security: []
+      parameters: [ { name: provider, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '204': { description: Assinatura verificada; deduplicado por psp_event_id }
+components:
+  parameters:
+    IdempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+  schemas:
+    Money:
+      type: object
+      required: [amount_cents, currency]
+      properties:
+        amount_cents: { type: integer, minimum: 0 }
+        currency: { type: string, const: BRL }
+    Payment:
+      type: object
+      required: [payment_id, state, method, amount]
+      properties:
+        payment_id: { type: string, format: uuid }
+        state: { type: string, enum: [pending, unknown, approved, failed, expired, partially_refunded, refunded, charged_back] }
+        method: { type: string }
+        amount: { $ref: '#/components/schemas/Money' }
+        pix: { type: object, properties: { qr_code_svg: { type: string }, copy_paste: { type: string }, expires_at: { type: string, format: date-time } } }

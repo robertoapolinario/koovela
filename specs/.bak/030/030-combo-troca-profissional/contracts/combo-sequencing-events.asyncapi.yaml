@@ -1,0 +1,31 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela — eventos de combo com troca (spec 030)
+  version: 1.0.0
+  description: >
+    scheduling.events. Consome workforce.engagement.ended.v1 e workforce.availability.changed.v1 (007) e catalog.combo.* (006).
+    Consumido por 011 (avisos), 018 (comissão por etapa), 023 (BI).
+defaultContentType: application/json
+channels:
+  schedulingEvents:
+    address: scheduling.events
+    messages:
+      stepChanged: { $ref: '#/components/messages/StepChanged' }
+      stepDelayed: { $ref: '#/components/messages/StepDelayed' }
+      comboAvailabilityChanged: { $ref: '#/components/messages/ComboAvailabilityChanged' }
+operations:
+  publishComboEvents:
+    action: send
+    channel: { $ref: '#/channels/schedulingEvents' }
+components:
+  messages:
+    StepChanged:
+      name: scheduling.appointment_step.changed
+      summary: event_type ∈ scheduling.appointment_step.{professional_changed,rescheduled,done}.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { appointment_id: { type: string, format: uuid }, position: { type: integer }, professional_id: { type: string, format: uuid }, starts_at: { type: string, format: date-time } } } } }
+    StepDelayed:
+      name: scheduling.appointment_step.delayed.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { alert_id: { type: string, format: uuid }, appointment_id: { type: string, format: uuid }, position: { type: integer }, projected_start: { type: string, format: date-time } } } } }
+    ComboAvailabilityChanged:
+      name: catalog.combo_availability.changed.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { combo_id: { type: string, format: uuid }, branch_id: { type: string, format: uuid }, available: { type: boolean }, missing_steps: { type: array, items: { type: integer } } } } } }

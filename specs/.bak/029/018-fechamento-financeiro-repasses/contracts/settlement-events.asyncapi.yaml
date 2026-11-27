@@ -1,0 +1,54 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Payments — eventos de fechamento (spec 018)
+  version: 1.0.0
+  description: >
+    Outbox do payments → payments.events. Só identificadores e valores; sem dados bancários.
+    Consome scheduling.appointment.completed.v1 (009), payments.payment.*, payments.refund.*, payments.chargeback.* (012),
+    fiscal.invoice.* (017).
+defaultContentType: application/json
+channels:
+  paymentsEvents:
+    address: payments.events
+    messages:
+      statementChanged: { $ref: '#/components/messages/StatementChanged' }
+      disputeChanged: { $ref: '#/components/messages/DisputeChanged' }
+      payoutRecorded: { $ref: '#/components/messages/PayoutRecorded' }
+      payoutAcknowledged: { $ref: '#/components/messages/PayoutAcknowledged' }
+      periodClosed: { $ref: '#/components/messages/PeriodClosed' }
+operations:
+  publishSettlementEvents:
+    action: send
+    channel: { $ref: '#/channels/paymentsEvents' }
+components:
+  messages:
+    StatementChanged:
+      name: payments.settlement_statement.changed
+      summary: event_type ∈ payments.settlement_statement.{drafted,reviewed,approved,paid,payout_overdue}.v1 — a 011 avisa: drafted ao colaborador, payout_overdue ao Proprietário
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              statement_id: { type: string, format: uuid }
+              professional_id: { type: string, format: uuid }
+              period_id: { type: string, format: uuid }
+              total_cents: { type: integer }
+              paid_via_split_cents: { type: integer }
+              held_pending_recipient_cents: { type: integer }
+              manual_due_cents: { type: integer }
+    DisputeChanged:
+      name: payments.settlement_dispute.changed
+      summary: event_type ∈ payments.settlement_dispute.{opened,answered}.v1 — a 011 avisa: opened ao Proprietário e ao Gerente da filial, answered ao colaborador
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { dispute_id: { type: string, format: uuid }, statement_id: { type: string, format: uuid } } } } }
+    PayoutRecorded:
+      name: payments.settlement_payout.recorded.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { payout_id: { type: string, format: uuid }, statement_id: { type: string, format: uuid }, amount_cents: { type: integer } } } } }
+    PayoutAcknowledged:
+      name: payments.settlement_payout.acknowledged.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { payout_id: { type: string, format: uuid }, statement_id: { type: string, format: uuid }, ack: { type: string, enum: [confirmed, diverged] } } } } }
+    PeriodClosed:
+      name: payments.settlement_period.closed.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { period_id: { type: string, format: uuid }, pending_carried: { type: integer } } } } }

@@ -1,0 +1,34 @@
+# OpenTelemetry Collector (host de dados). Recebe OTLP dos processos e encaminha para Prometheus,
+# Loki e Tempo. Segunda linha de mascaramento de PII (a primeira é no processo — REQ-FND-041).
+receivers:
+  otlp:
+    protocols:
+      http: { endpoint: 0.0.0.0:4318 }
+
+processors:
+  memory_limiter: { check_interval: 1s, limit_mib: 300, spike_limit_mib: 60 }
+  batch: { timeout: 5s, send_batch_size: 1024 }
+  redaction:
+    allow_all_keys: true
+    blocked_values:
+      - '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'          # e-mail
+      - '\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b'                         # CPF
+      - '\b(?:\d[ -]?){12,18}\d\b'                                 # cartão
+      - '(?:\+?55[\s-]?)?\(?\b\d{2}\)?[\s-]?9?\d{4}[\s-]?\d{4}\b'  # telefone
+      - 'eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}' # JWT
+    summary: silent
+  resource/env:
+    attributes:
+      - { key: deployment.environment.name, value: '${env:KOOVELA_ENV}', action: upsert }
+
+exporters:
+  otlphttp/prometheus: { endpoint: http://prometheus:9090/api/v1/otlp, tls: { insecure: true } }
+  otlphttp/loki: { endpoint: http://loki:3100/otlp, tls: { insecure: true } }
+  otlphttp/tempo: { endpoint: http://tempo:4318, tls: { insecure: true } }
+
+service:
+  telemetry: { metrics: { level: basic } }
+  pipelines:
+    traces: { receivers: [otlp], processors: [memory_limiter, redaction, resource/env, batch], exporters: [otlphttp/tempo] }
+    metrics: { receivers: [otlp], processors: [memory_limiter, resource/env, batch], exporters: [otlphttp/prometheus] }
+    logs: { receivers: [otlp], processors: [memory_limiter, redaction, resource/env, batch], exporters: [otlphttp/loki] }

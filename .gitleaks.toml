@@ -1,0 +1,17 @@
+# gitleaks (REQ-FND-082): regras padrão + exceções para dados FALSOS usados em testes de mascaramento.
+title = "koovela"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Valores sintéticos dos testes de PII e de configuração (não são segredos reais)"
+paths = [
+  '''packages/platform/logger/(src|__tests__)/.*\.test\.ts''',
+  '''packages/platform/config/(src|__tests__)/.*\.test\.ts''',
+  '''packages/platform/errors/src/.*\.test\.ts''',
+  '''tools/edge-scan/__tests__/.*''',
+  '''pnpm-lock\.yaml''',
+]
+regexTarget = "match"
+regexes = ['''S3gredo-''', '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiI''']

@@ -1,0 +1,62 @@
+# Alertmanager (data-model §1.6). Crítico em produção → push (ntfy) + e-mail 24x7, reenvio a cada 15 min;
+# warning em produção e tudo de staging → e-mail em horário comercial (seg–sex, 9h–18h, São Paulo), resumo diário.
+global:
+  smtp_smarthost: smtp.resend.com:587
+  smtp_from: alertas@mail.koovela.com
+  smtp_auth_username: resend
+  smtp_auth_password_file: /run/secrets/smtp_password
+  smtp_require_tls: true
+
+time_intervals:
+  - name: horario-comercial
+    time_intervals:
+      - weekdays: [monday:friday]
+        times: [{ start_time: '09:00', end_time: '18:00' }]
+        location: America/Sao_Paulo
+
+route:
+  receiver: email-sre
+  group_by: [alertname, environment]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 24h
+  routes:
+    - matchers: [severity="critical", environment="production"]
+      receiver: critico-24x7
+      repeat_interval: 15m
+      continue: false
+    - matchers: [severity="warning", environment="production"]
+      receiver: email-sre
+      active_time_intervals: [horario-comercial]
+      group_interval: 24h
+      repeat_interval: 24h
+    - matchers: [environment="staging"]
+      receiver: email-sre
+      active_time_intervals: [horario-comercial]
+      group_interval: 24h
+      repeat_interval: 24h
+
+inhibit_rules:
+  - source_matchers: [alertname="HostDown"]
+    target_matchers: [alertname=~"ServiceUnhealthy|HighErrorRate"]
+    equal: [environment]
+
+receivers:
+  - name: critico-24x7
+    webhook_configs:
+      # Registro de incidentes (MTTR, T130) no core, pela VCN.
+      - url: http://${APP_HOST_IP}:8081/internal/platform/alertmanager
+        send_resolved: true
+        http_config:
+          authorization: { type: Bearer, credentials_file: /run/secrets/alertmanager_webhook_token }
+      - url: https://ntfy.sh/koovela-prod-critical?template=alertmanager
+        send_resolved: true
+        http_config:
+          authorization: { type: Bearer, credentials_file: /run/secrets/ntfy_token }
+    email_configs:
+      - to: sre@koovela.com
+        send_resolved: true
+  - name: email-sre
+    email_configs:
+      - to: sre@koovela.com
+        send_resolved: true

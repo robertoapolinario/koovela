@@ -1,0 +1,12 @@
+{
+  "name": "@koovela/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./openapi/*": "./openapi/*",
+    "./asyncapi/*": "./asyncapi/*",
+    "./schemas/*": "./schemas/*",
+    "./ui/*": "./ui/*"
+  }
+}

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Roda os testes Playwright num contêiner com os navegadores (imagem oficial por digest).
+# Uso: tools/dev/pw apps/consumer-web
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+APP=${1:?uso: tools/dev/pw apps/<app>}
+exec docker run --rm --ipc=host -v "$ROOT":"$ROOT" -w "$ROOT/$APP" \
+  mcr.microsoft.com/playwright@sha256:1507cbfc550a63a6b7396791ca4f00df17beb56342d2447b3f106c306f525579 \
+  sh -c 'node_modules/.bin/playwright test "$@"' -- "${@:2}"

@@ -1,0 +1,143 @@
+# Host de dados (db-stg-01 / db-worker-01) — REQ-FND-027/029. Sem IP público; portas só na VCN privada.
+# Limites de memória para caber no Always Free (12 GB por host — research R11).
+name: koovela-data
+
+x-svc: &svc
+  restart: unless-stopped
+  security_opt: ['no-new-privileges:true']
+  networks: [data]
+  logging: { driver: json-file, options: { max-size: 20m, max-file: '5' } }
+
+services:
+  mysql:
+    <<: *svc
+    image: mysql@sha256:0f51e63e537a1f176423fa03ef559aabe6fa4372a53160a44bc7e75da7d15364 # mysql:8.4.11
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
+      - --binlog-format=ROW
+      - --gtid-mode=ON
+      - --enforce-gtid-consistency=ON
+      - --binlog-expire-logs-seconds=3024000 # 35 dias (REQ-FND-053)
+      - --innodb-buffer-pool-size=3G
+      - --require-secure-transport=ON
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
+    secrets: [mysql_root_password]
+    ports: ['${PRIVATE_IP:?}:3306:3306']
+    volumes: ['/srv/koovela/mysql:/var/lib/mysql', '/srv/koovela/binlog-ship:/binlog-ship']
+    healthcheck: { test: ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '--silent'], interval: 10s, timeout: 3s, retries: 10 }
+    deploy: { resources: { limits: { memory: 4g } } }
+
+  redis:
+    <<: *svc
+    image: redis@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2 # redis:7.4.10-alpine
+    command: ['sh', '-c', 'exec redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy noeviction --requirepass "$$(cat /run/secrets/redis_password)"']
+    secrets: [redis_password]
+    ports: ['${PRIVATE_IP:?}:6379:6379']
+    volumes: ['/srv/koovela/redis:/data']
+    deploy: { resources: { limits: { memory: 768m } } }
+
+  rabbitmq:
+    <<: *svc
+    image: rabbitmq@sha256:f33dc8cef83be952791356850d88b965111d11ec736133b58acc5e5103efc9f4 # rabbitmq:4.2.3-management-alpine
+    environment:
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: '-rabbitmq_prometheus return_per_object_metrics true'
+      RABBITMQ_DEFAULT_USER: koovela
+      RABBITMQ_DEFAULT_PASS_FILE: /run/secrets/rabbitmq_password
+    secrets: [rabbitmq_password]
+    ports: ['${PRIVATE_IP:?}:5672:5672']
+    volumes: ['/srv/koovela/rabbitmq:/var/lib/rabbitmq']
+    deploy: { resources: { limits: { memory: 1g } } }
+
+  # --- observabilidade (R11): ver infra/observability ---
+  otel-collector:
+    <<: *svc
+    image: otel/opentelemetry-collector-contrib@sha256:3e18fe04181de50bdd72e23ad4a4d6214b54351e63d496f1c58127cc4541ad7f # opentelemetry-collector-contrib:0.166.0
+    command: ['--config=/etc/otelcol/config.yaml']
+    environment: { KOOVELA_ENV: '${KOOVELA_ENV:?}' }
+    volumes: ['../observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro']
+    ports: ['${PRIVATE_IP:?}:4318:4318']
+    deploy: { resources: { limits: { memory: 384m } } }
+
+  prometheus:
+    <<: *svc
+    image: prom/prometheus@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06 # prometheus:v3.16.0
+    command: ['--config.file=/etc/prometheus/prometheus.yml', '--storage.tsdb.retention.time=30d', '--web.enable-lifecycle', '--web.enable-otlp-receiver', '--enable-feature=expand-external-labels']
+    volumes: ['/etc/koovela/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro', '../observability/alerts:/etc/prometheus/alerts:ro', '/srv/koovela/prometheus:/prometheus']
+    deploy: { resources: { limits: { memory: 1g } } }
+
+  loki:
+    <<: *svc
+    image: grafana/loki@sha256:4c86f2ad5003304c8da84d29da2279b04eb999d716f8089c88e4fa4a44b0781e # loki:3.7.11
+    command: ['-config.file=/etc/loki/config.yaml']
+    volumes: ['../observability/loki.yaml:/etc/loki/config.yaml:ro', '/srv/koovela/loki:/loki']
+    deploy: { resources: { limits: { memory: 1g } } }
+
+  tempo:
+    <<: *svc
+    image: grafana/tempo@sha256:ee21727732c7a7199cb71c3eee9153bbf23f9b0b87619f0555a0cf21a67f1a33 # tempo:2.10.5
+    command: ['-config.file=/etc/tempo/config.yaml']
+    volumes: ['../observability/tempo.yaml:/etc/tempo/config.yaml:ro', '/srv/koovela/tempo:/var/tempo']
+    deploy: { resources: { limits: { memory: 768m } } }
+
+  grafana:
+    <<: *svc
+    image: grafana/grafana-oss@sha256:5dad0df181cb644a14e13617b913b261a54f7d4fd4510721dba420929f35bea2 # grafana-oss:13.0.2
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+    secrets: [grafana_admin_password]
+    ports: ['127.0.0.1:3000:3000'] # só pelo túnel (grafana.koovela.com, atrás do Access)
+    volumes:
+      - ../observability/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ../observability/grafana/providers/dashboards.yaml:/etc/grafana/provisioning/dashboards/koovela.yaml:ro
+      - ../observability/grafana/dashboards:/etc/grafana/provisioning/dashboards/json:ro
+      - /srv/koovela/grafana:/var/lib/grafana
+    deploy: { resources: { limits: { memory: 384m } } }
+
+  alertmanager:
+    <<: *svc
+    image: prom/alertmanager@sha256:4e3d029e69c7f61dd53a2b31a3dc427a2b81736cffca185c0854075e07969e36 # alertmanager:v0.35.1
+    command: ['--config.file=/etc/alertmanager/alertmanager.yml']
+    volumes: ['/etc/koovela/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro']
+    secrets: [smtp_password, ntfy_token, alertmanager_webhook_token]
+    deploy: { resources: { limits: { memory: 128m } } }
+
+  mysqld-exporter:
+    <<: *svc
+    image: prom/mysqld-exporter@sha256:afad0c59a154fea24ca5ea0e6f95f2b0b168601b111266963dc8a347715b5318 # mysqld-exporter:v0.21.0
+    command: ['--config.my-cnf=/run/secrets/mysql_exporter_cnf', '--mysqld.address=mysql:3306']
+    secrets: [mysql_exporter_cnf]
+    deploy: { resources: { limits: { memory: 64m } } }
+
+  redis-exporter:
+    <<: *svc
+    image: oliver006/redis_exporter@sha256:2c0cdc2452096b5af460d870e72fa6ee2ebb971780f443a616885685d2c0ebad # redis_exporter:v1.99.0
+    environment: { REDIS_ADDR: 'redis://redis:6379', REDIS_PASSWORD_FILE: /run/secrets/redis_password }
+    secrets: [redis_password]
+    deploy: { resources: { limits: { memory: 64m } } }
+
+
+  node-exporter:
+    <<: *svc
+    image: prom/node-exporter@sha256:7296504d4ada44b7d7ab4431e27e9f9900d8488f8d55842f4b12ae2704e16dfe # node-exporter:v1.13.1
+    command: ['--path.rootfs=/host', '--collector.textfile.directory=/textfile']
+    pid: host
+    volumes: ['/:/host:ro,rslave', '/var/lib/koovela/metrics:/textfile:ro']
+    deploy: { resources: { limits: { memory: 64m } } }
+
+secrets:
+  mysql_root_password: { file: /etc/koovela/secrets/mysql_root_password }
+  redis_password: { file: /etc/koovela/secrets/redis_password }
+  rabbitmq_password: { file: /etc/koovela/secrets/rabbitmq_password }
+  grafana_admin_password: { file: /etc/koovela/secrets/grafana_admin_password }
+  smtp_password: { file: /etc/koovela/secrets/smtp_password }
+  ntfy_token: { file: /etc/koovela/secrets/ntfy_token }
+  mysql_exporter_cnf: { file: /etc/koovela/secrets/mysql_exporter_cnf }
+  alertmanager_webhook_token: { file: /etc/koovela/secrets/alertmanager_webhook_token }
+
+networks:
+  data:

@@ -1,0 +1,247 @@
+openapi: 3.1.0
+info:
+  title: Koovela Scheduling — agendamentos e ciclo de vida
+  version: 1.0.0
+  description: >
+    Spec 009. x-koovela-action em toda operação; Idempotency-Key em todo comando.
+    Consumidor: tenant vem do slug (criação) ou da projeção do próprio consumidor (ações).
+servers:
+  - url: https://api.koovela.com
+  - url: http://core.internal:8080
+paths:
+  /v1/consumer/businesses/{slug}/appointments:
+    post:
+      operationId: createDraftAppointment
+      x-koovela-action: consumer.appointment.create
+      summary: Escolha do horário → RASCUNHO + reserva temporária (10 min)
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAppointment' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Appointment' }
+          description: Rascunho com hold e expires_at
+        '409': { description: scheduling.slot_taken (com alternativas) ou scheduling.future_limit_reached }
+  /v1/consumer/appointments:
+    get:
+      operationId: listMyAppointments
+      x-koovela-action: consumer.appointment.list
+      parameters:
+        - { name: scope, in: query, schema: { type: string, enum: [upcoming, past] } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Projeção global (todos os estabelecimentos) }
+  /v1/consumer/appointments/{appointment_id}:
+    get:
+      operationId: getMyAppointment
+      x-koovela-action: consumer.appointment.read
+      parameters: [ { $ref: '#/components/parameters/AppointmentId' } ]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Appointment' }
+          description: Detalhe com consequências da política (010)
+  /v1/consumer/appointments/{appointment_id}/confirm:
+    post:
+      operationId: confirmMyAppointment
+      x-koovela-action: consumer.appointment.confirm
+      parameters: [ { $ref: '#/components/parameters/AppointmentId' }, { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note: { type: string, maxLength: 300 }
+                policy_version_ack: { type: string, format: uuid, description: Versão da política exibida no resumo }
+      responses:
+        '200': { description: CONFIRMADO, ou PENDENTE_PAGAMENTO com instruções de pagamento (012) }
+        '410': { description: scheduling.hold_expired }
+  /v1/consumer/appointments/{appointment_id}/reschedule:
+    post:
+      operationId: rescheduleMyAppointment
+      x-koovela-action: consumer.appointment.reschedule
+      parameters: [ { $ref: '#/components/parameters/AppointmentId' }, { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [start]
+              properties:
+                start: { type: string, format: date-time }
+                professional_id: { type: [string, 'null'], format: uuid }
+      responses:
+        '200': { description: Original REAGENDADO + novo CONFIRMADO (atômico), mesmas versões e pagamento }
+        '403': { description: scheduling.policy_forbids (consequência da política) }
+  /v1/consumer/appointments/{appointment_id}/cancel:
+    post:
+      operationId: cancelMyAppointment
+      x-koovela-action: consumer.appointment.cancel
+      parameters: [ { $ref: '#/components/parameters/AppointmentId' }, { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, maxLength: 200 }
+                consequence_ack: { type: boolean }
+      responses:
+        '200': { description: CANCELADO_USUARIO; consequência aplicada pela 010/012 }
+  /v1/consumer/appointments/{appointment_id}/ics:
+    get:
+      operationId: getIcs
+      x-koovela-action: consumer.appointment.read
+      parameters: [ { $ref: '#/components/parameters/AppointmentId' } ]
+      responses:
+        '200': { description: text/calendar para adicionar ao calendário }
+  /v1/tenant/agenda:
+    get:
+      operationId: getAgenda
+      x-koovela-action: scheduling.agenda.read
+      parameters:
+        - { name: branch_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: view, in: query, schema: { type: string, enum: [day, week] } }
+        - { name: date, in: query, required: true, schema: { type: string, format: date } }
+        - { name: professional_id, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Agendamentos, ocupações, livres, folgas e bloqueios (escopo do papel) }
+  /v1/tenant/agenda/stream:
+    get:
+      operationId: streamAgenda
+      x-koovela-action: scheduling.agenda.read
+      parameters: [ { name: branch_id, in: query, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: text/event-stream com mudanças em ≤ 5 s }
+  /v1/tenant/appointments:
+    post:
+      operationId: createManualAppointment
+      x-koovela-action: scheduling.appointment.create_manual
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/CreateAppointment'
+                - type: object
+                  properties:
+                    consumer_id: { type: string, format: uuid }
+                    new_consumer: { type: object, properties: { name: { type: string }, phone: { type: string } }, description: Pré-cadastro sem OTP }
+                    override: { type: object, properties: { reason: { type: string } } }
+                    exceed_future_limit: { type: boolean }
+      responses:
+        '201': { description: CONFIRMADO direto (ou PENDENTE_PAGAMENTO se a política exigir) }
+  /v1/tenant/appointments/{appointment_id}/{command}:
+    post:
+      operationId: staffAppointmentCommand
+      x-koovela-action: scheduling.appointment.command
+      parameters:
+        - { $ref: '#/components/parameters/AppointmentId' }
+        - { name: command, in: path, required: true, schema: { type: string, enum: [check-in, check-out, no-show, correct-no-show, cancel, reschedule, change-professional] } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+                start: { type: string, format: date-time }
+                professional_id: { type: string, format: uuid }
+                final_amount: { type: object, properties: { amount_cents: { type: integer }, currency: { type: string } } }
+                recorded_at: { type: string, format: date-time, description: Horário do aparelho (registro sem conexão) }
+                recorded_offline: { type: boolean }
+      responses:
+        '200': { description: Transição aplicada (ou recusada se proibida) }
+        '409': { description: scheduling.transition_not_allowed, scheduling.checkin_too_early, scheduling.final_below_minimum }
+  /v1/tenant/appointments/affected:
+    get:
+      operationId: listAffected
+      x-koovela-action: scheduling.agenda.read
+      responses:
+        '200': { description: Afetados por mudança de escala, folga, bloqueio, troca ou horário }
+  /v1/tenant/appointments/pending-records:
+    get:
+      operationId: listPendingRecords
+      x-koovela-action: scheduling.agenda.read
+      responses:
+        '200': { description: CONFIRMADO sem check-in ao fim do dia }
+  /v1/pro/agenda:
+    get:
+      operationId: getMyAgenda
+      x-koovela-action: scheduling.agenda.self_read
+      parameters: [ { name: days, in: query, schema: { type: integer, default: 7, maximum: 7 } } ]
+      responses:
+        '200': { description: Próprios agendamentos (para cache offline de 7 dias), com synced_at }
+  /v1/internal/scheduling/appointments/in-window:
+    get:
+      operationId: appointmentsInWindow
+      x-koovela-action: internal.scheduling.appointment.read
+      parameters:
+        - { name: branch_id, in: query, schema: { type: string, format: uuid } }
+        - { name: professional_id, in: query, schema: { type: string, format: uuid } }
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+      responses:
+        '200': { description: Contagem e lista de futuros na janela (usado por 005 e 007) }
+  /v1/internal/identity/consumers/pre-register:
+    post:
+      operationId: preRegisterConsumer
+      x-koovela-action: internal.identity.consumer.pre_register
+      summary: (Contrato do identity, acrescentado pela spec 009) pré-cadastro sem OTP, visível só ao tenant criador
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, phone, tenant_id]
+              properties:
+                name: { type: string }
+                phone: { type: string }
+                tenant_id: { type: string, format: uuid }
+      responses:
+        '201': { description: consumer_id (existente ou novo pré-cadastro) }
+components:
+  parameters:
+    AppointmentId: { name: appointment_id, in: path, required: true, schema: { type: string, format: uuid } }
+    IdempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+  schemas:
+    CreateAppointment:
+      type: object
+      required: [branch_id, item_kind, item_id, start]
+      properties:
+        branch_id: { type: string, format: uuid }
+        item_kind: { type: string, enum: [service, combo] }
+        item_id: { type: string, format: uuid }
+        professional_id: { type: [string, 'null'], format: uuid }
+        start: { type: string, format: date-time }
+        src: { type: string, enum: [link, qr, direct] }
+    Appointment:
+      type: object
+      required: [appointment_id, state, start_at, end_at, timezone]
+      properties:
+        appointment_id: { type: string, format: uuid }
+        state: { type: string, enum: [RASCUNHO, PENDENTE_PAGAMENTO, CONFIRMADO, EM_ATENDIMENTO, CONCLUIDO, CANCELADO_USUARIO, CANCELADO_ESTABELECIMENTO, NO_SHOW, REAGENDADO, EXPIRADO] }
+        business: { type: object, properties: { name: { type: string }, slug: { type: string } } }
+        branch: { type: object, properties: { name: { type: string }, address_full: { type: string, description: Só após confirmação }, geo_point: { type: object } } }
+        service_name: { type: string }
+        professional: { type: object, properties: { professional_id: { type: string, format: uuid }, display_name: { type: string } } }
+        start_at: { type: string, format: date-time }
+        end_at: { type: string, format: date-time }
+        timezone: { type: string }
+        hold_expires_at: { type: [string, 'null'], format: date-time }
+        price: { type: [object, 'null'], properties: { amount_cents: { type: integer }, currency: { type: string } }, description: Ausente em saúde }
+        allowed_actions: { type: array, items: { type: string, enum: [reschedule, cancel, book_again, add_to_calendar] } }
+        policy_consequences: { type: object, description: Preenchido pela 010 }

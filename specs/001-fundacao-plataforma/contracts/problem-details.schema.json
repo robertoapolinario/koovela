@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.koovela.com/schemas/problem-details.v1.json",
+  "title": "Problem Details (RFC 9457) — Koovela",
+  "description": "Formato único de erro de API (REQ-FND-073). `code` é estável e em inglês; `title` e `detail` em pt-BR. Nunca contém dado pessoal (CONST IV).",
+  "type": "object",
+  "required": ["type", "title", "status", "code", "request_id"],
+  "properties": {
+    "type": { "type": "string", "format": "uri-reference", "description": "URI do tipo de erro, ex.: https://api.koovela.com/problems/rate-limited" },
+    "title": { "type": "string", "description": "Resumo em pt-BR" },
+    "status": { "type": "integer", "minimum": 400, "maximum": 599 },
+    "detail": { "type": "string", "description": "Explicação em pt-BR, sem PII" },
+    "instance": { "type": "string", "format": "uri-reference" },
+    "code": { "type": "string", "pattern": "^[a-z]+(\\.[a-z_]+)+$", "description": "Código estável, ex.: platform.rate_limited, platform.dependency_unavailable" },
+    "request_id": { "type": "string", "format": "uuid" },
+    "errors": {
+      "type": "array",
+      "description": "Erros de validação por campo",
+      "items": {
+        "type": "object",
+        "required": ["pointer", "code"],
+        "properties": {
+          "pointer": { "type": "string", "description": "JSON Pointer do campo" },
+          "code": { "type": "string" },
+          "detail": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

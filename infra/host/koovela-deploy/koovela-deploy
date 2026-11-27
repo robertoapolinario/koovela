@@ -1,0 +1,156 @@
+#!/bin/sh
+# koovela-deploy — deploy por pull no host (REQ-FND-021/022/025/026).
+#
+#   koovela-deploy --env staging --manifest release.json [--kind deploy|promotion] [--approved-by login]
+#   koovela-deploy --env production --rollback
+#
+# Verifica a assinatura cosign de cada imagem (identidade do deliver.yml da main), puxa por digest,
+# sobe processo a processo, espera a saúde e volta sozinho para a versão anterior se a saúde falhar.
+# Cada passo vai para $STATE_DIR/deploys.jsonl (data-model §1.2).
+set -eu
+
+STATE_DIR=${STATE_DIR:-/var/lib/koovela}
+COMPOSE_FILE=${COMPOSE_FILE:-/opt/koovela/infra/compose/app-host.yml}
+COSIGN=${COSIGN:-cosign}
+DOCKER=${DOCKER:-docker}
+JQ=${JQ:-jq}
+HEALTH_URL=${HEALTH_URL:-http://127.0.0.1:8080/v1/health}
+HEALTH_TIMEOUT=${HEALTH_TIMEOUT:-300}
+HEALTH_CMD=${HEALTH_CMD:-}
+PROCESSES=${PROCESSES:-"gateway core workers consumer-web tenant-web admin-web"}
+NTFY_URL=${NTFY_URL:-}
+
+ENVIRONMENT="" MANIFEST="" KIND="deploy" APPROVED_BY="" ROLLBACK=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --env) ENVIRONMENT=$2; shift 2 ;;
+    --manifest) MANIFEST=$2; shift 2 ;;
+    --kind) KIND=$2; shift 2 ;;
+    --approved-by) APPROVED_BY=$2; shift 2 ;;
+    --rollback) ROLLBACK=1; KIND=rollback; shift ;;
+    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+    *) echo "argumento desconhecido: $1" >&2; exit 2 ;;
+  esac
+done
+
+die() { echo "koovela-deploy: $*" >&2; exit 1; }
+now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+uuid() { cat /proc/sys/kernel/random/uuid 2>/dev/null || od -An -N16 -tx1 /dev/urandom | tr -d ' \n' | sed 's/\(........\)\(....\)\(....\)\(....\)\(............\)/\1-\2-\3-\4-\5/'; }
+
+case "$ENVIRONMENT" in staging|production) ;; *) die "--env deve ser staging ou production" ;; esac
+case "$KIND" in deploy|promotion|rollback) ;; *) die "--kind inválido: $KIND" ;; esac
+if [ "$ENVIRONMENT" = production ] && [ "$KIND" != rollback ] && [ -z "$APPROVED_BY" ]; then
+  die "produção exige --approved-by (aprovação registrada no environment)"
+fi
+
+mkdir -p "$STATE_DIR/releases"
+LOG="$STATE_DIR/deploys.jsonl"
+LOCK="$STATE_DIR/deploy.lock"
+
+# Invariante (data-model §1.2): no máximo um deploy em andamento por ambiente.
+if ! mkdir "$LOCK" 2>/dev/null; then
+  die "outro deploy em andamento ($(cat "$LOCK/owner" 2>/dev/null || echo '?')); recusado"
+fi
+trap 'rm -rf "$LOCK"' EXIT INT TERM
+echo "$$ $(now)" > "$LOCK/owner"
+
+CURRENT=$(cat "$STATE_DIR/current" 2>/dev/null || echo "")
+PREVIOUS=$(cat "$STATE_DIR/previous" 2>/dev/null || echo "")
+
+if [ "$ROLLBACK" -eq 1 ]; then
+  [ -n "$PREVIOUS" ] || die "não há versão anterior para voltar"
+  MANIFEST="$STATE_DIR/releases/$PREVIOUS.json"
+  [ -f "$MANIFEST" ] || die "manifesto da versão anterior ausente: $MANIFEST"
+fi
+[ -n "$MANIFEST" ] && [ -f "$MANIFEST" ] || die "--manifest obrigatório"
+
+VERSION=$($JQ -er '.version' "$MANIFEST") || die "manifesto sem version"
+ISSUER=$($JQ -er '.signature.issuer' "$MANIFEST") || die "manifesto sem signature.issuer"
+IDENTITY=$($JQ -er '.signature.identity' "$MANIFEST") || die "manifesto sem signature.identity"
+case "$IDENTITY" in
+  https://github.com/*/.github/workflows/deliver.yml@refs/heads/main) ;;
+  *) die "identidade de assinatura não é o deliver.yml da main: $IDENTITY" ;;
+esac
+$JQ -e '.images | length > 0 and all(.digest | test("^sha256:[a-f0-9]{64}$")) and all(.platform == "linux/arm64")' "$MANIFEST" >/dev/null \
+  || die "toda imagem precisa de digest sha256 e plataforma linux/arm64"
+
+DEPLOY_ID=$(uuid)
+metric() { # 1|0
+  mkdir -p "$STATE_DIR/metrics"
+  printf '# HELP koovela_deploy_last_status 1 = último deploy ok, 0 = falhou\n# TYPE koovela_deploy_last_status gauge\nkoovela_deploy_last_status{environment="%s",version="%s",kind="%s"} %s\nkoovela_deploy_last_timestamp_seconds{environment="%s"} %s\n' \
+    "$ENVIRONMENT" "$VERSION" "$KIND" "$1" "$ENVIRONMENT" "$(date +%s)" > "$STATE_DIR/metrics/deploy.prom.tmp"
+  mv "$STATE_DIR/metrics/deploy.prom.tmp" "$STATE_DIR/metrics/deploy.prom"
+}
+record() { # status
+  $JQ -cn --arg id "$DEPLOY_ID" --arg env "$ENVIRONMENT" --arg v "$VERSION" --arg pv "$CURRENT" \
+    --arg kind "$KIND" --arg by "$APPROVED_BY" --arg st "$1" --arg at "$(now)" \
+    '{deploy_id:$id, environment:$env, version:$v, previous_version:(if $pv=="" then null else $pv end),
+      kind:$kind, approved_by:(if $by=="" then null else $by end), status:$st, at:$at}' >> "$LOG"
+}
+alert() {
+  echo "ALERTA: $*" >&2
+  [ -n "$NTFY_URL" ] && curl -fsS -H "Priority: urgent" -H "Tags: rotating_light" -d "[$ENVIRONMENT] $*" "$NTFY_URL" >/dev/null 2>&1 || true
+}
+
+record started
+
+# 1. Assinatura: só imagem do pipeline da main (REQ-FND-021).
+IMAGES_ENV="$STATE_DIR/images.$VERSION.env"
+: > "$IMAGES_ENV"
+for row in $($JQ -r '.images[] | "\(.service)=\(.image)@\(.digest)"' "$MANIFEST"); do
+  svc=${row%%=*}; ref=${row#*=}
+  if ! $COSIGN verify --certificate-oidc-issuer "$ISSUER" --certificate-identity "$IDENTITY" "$ref" >/dev/null 2>&1; then
+    record failed
+    metric 0
+    alert "assinatura inválida em $ref (versão $VERSION); deploy recusado"
+    die "assinatura cosign inválida: $ref"
+  fi
+  var=$(echo "IMAGE_$svc" | tr 'a-z-' 'A-Z_')
+  echo "$var=$ref" >> "$IMAGES_ENV"
+done
+
+apply() { # images.env
+  ln -sf "$1" "$STATE_DIR/images.env"
+  $DOCKER compose -f "$COMPOSE_FILE" --env-file "$STATE_DIR/images.env" pull --quiet $PROCESSES
+  for p in $PROCESSES; do
+    $DOCKER compose -f "$COMPOSE_FILE" --env-file "$STATE_DIR/images.env" up -d --no-deps "$p"
+  done
+}
+healthy() {
+  if [ -n "$HEALTH_CMD" ]; then sh -c "$HEALTH_CMD"; return; fi
+  end=$(( $(date +%s) + HEALTH_TIMEOUT ))
+  while [ "$(date +%s)" -lt "$end" ]; do
+    if curl -fsS "$HEALTH_URL" 2>/dev/null | $JQ -e '.status == "ok" or .status == "degraded"' >/dev/null; then return 0; fi
+    sleep 5
+  done
+  return 1
+}
+
+# 2. Pull por digest e subida por processo.
+apply "$IMAGES_ENV"
+record verifying_health
+
+# 3. Saúde; se falhar, volta sozinho para a versão em execução (REQ-FND-026).
+if healthy; then
+  [ "$MANIFEST" -ef "$STATE_DIR/releases/$VERSION.json" ] || cp "$MANIFEST" "$STATE_DIR/releases/$VERSION.json"
+  if [ "$KIND" = rollback ]; then
+    echo "$VERSION" > "$STATE_DIR/current"
+    echo "$CURRENT" > "$STATE_DIR/previous"
+  else
+    [ -n "$CURRENT" ] && echo "$CURRENT" > "$STATE_DIR/previous"
+    echo "$VERSION" > "$STATE_DIR/current"
+  fi
+  record succeeded
+  metric 1
+  echo "✔ $ENVIRONMENT em $VERSION ($KIND)"
+else
+  record failed
+  metric 0
+  if [ -n "$CURRENT" ] && [ -f "$STATE_DIR/images.$CURRENT.env" ]; then
+    apply "$STATE_DIR/images.$CURRENT.env"
+    alert "saúde falhou em $VERSION; revertido automaticamente para $CURRENT"
+  else
+    alert "saúde falhou em $VERSION e não há versão anterior para voltar"
+  fi
+  die "readiness falhou para $VERSION"
+fi

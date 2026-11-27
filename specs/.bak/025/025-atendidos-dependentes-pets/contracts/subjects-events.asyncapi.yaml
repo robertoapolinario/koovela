@@ -1,0 +1,38 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Identity — eventos de atendidos (spec 025)
+  version: 1.0.0
+  description: >
+    Outbox do identity → identity.events. Sem nome nem data de nascimento de menores.
+    Consumidos por 009 (snapshot), 011 (avisos), 020 (anotações por atendido), 022 (registro de consentimentos).
+defaultContentType: application/json
+channels:
+  identityEvents:
+    address: identity.events
+    messages:
+      subjectChanged: { $ref: '#/components/messages/SubjectChanged' }
+      guardianChanged: { $ref: '#/components/messages/GuardianChanged' }
+operations:
+  publishSubjectEvents:
+    action: send
+    channel: { $ref: '#/channels/identityEvents' }
+components:
+  messages:
+    SubjectChanged:
+      name: identity.subject.changed
+      summary: event_type ∈ identity.subject.{created,updated,archived,link_refused,coming_of_age_soon,became_adult,became_independent}.v1
+      payload:
+        type: object
+        properties:
+          data:
+            type: object
+            properties:
+              subject_id: { type: string, format: uuid }
+              holder_consumer_id: { type: string, format: uuid }
+              kind: { type: string }
+              state: { type: string }
+              linked_consumer_id: { type: [string, 'null'], format: uuid }
+    GuardianChanged:
+      name: identity.subject_guardian.changed
+      summary: event_type ∈ identity.subject_guardian.{invited,accepted,removed}.v1
+      payload: { type: object, properties: { data: { type: object, properties: { subject_id: { type: string, format: uuid }, consumer_id: { type: string, format: uuid }, role: { type: string } } } } }

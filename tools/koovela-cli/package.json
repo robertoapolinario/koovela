@@ -1,0 +1,22 @@
+{
+  "name": "@koovela/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "koovela": "./src/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run --passWithNoTests --exclude '**/*.integration.test.ts' --exclude '**/*.int.test.ts' --exclude '**/e2e/**' --exclude '**/node_modules/**'",
+    "test:integration": "vitest run --config ../../vitest.integration.config.ts tools/koovela-cli"
+  },
+  "dependencies": {
+    "@koovela/migrations": "workspace:*",
+    "@koovela/platform-config": "workspace:*",
+    "@koovela/svc-platform": "workspace:*",
+    "@koovela/testing": "workspace:*",
+    "kysely": "0.29.9"
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "$comment": "Contrato de UI dos shells (REQ-FND-062/063). Extraído do Figma 'Koovela — Protótipo v1.0' em 2026-11-25. Cada destino abre uma tela vazia que exibe o código.",
+  "version": 1,
+  "shells": {
+    "consumer-mobile": {
+      "bundle_id": "com.koovela.app",
+      "pattern": "bottom-tabs",
+      "figma_component": "Barra de abas · Consumidor",
+      "items": [
+        { "key": "home", "label_i18n": "nav.consumer.home", "screen": "C00", "phase": "fase-2", "flag": "discovery.home_tab" },
+        { "key": "appointments", "label_i18n": "nav.consumer.appointments", "screen": "C03", "phase": "v1.0" },
+        { "key": "series", "label_i18n": "nav.consumer.series", "screen": "C14", "phase": "v1.0" },
+        { "key": "loyalty", "label_i18n": "nav.consumer.loyalty", "screen": "C15", "phase": "v1.0" },
+        { "key": "profile", "label_i18n": "nav.consumer.profile", "screen": "C18", "phase": "v1.0" }
+      ],
+      "deep_links": [
+        { "pattern": "https://koovela.com/{slug}", "screen": "C04" },
+        { "pattern": "https://app.koovela.com/*", "screen": "C03" }
+      ]
+    },
+    "pro-mobile": {
+      "bundle_id": "com.koovela.pro",
+      "pattern": "bottom-tabs",
+      "figma_component": "Barra de abas · Colaborador",
+      "items": [
+        { "key": "agenda", "label_i18n": "nav.pro.agenda", "screen": "K01" },
+        { "key": "commissions", "label_i18n": "nav.pro.commissions", "screen": "K03" },
+        { "key": "time_off", "label_i18n": "nav.pro.time_off", "screen": "K04" },
+        { "key": "profile", "label_i18n": "nav.pro.profile", "screen": "K05" }
+      ]
+    },
+    "pro-desktop": {
+      "host": "painel.koovela.com",
+      "base_path": "/pro",
+      "pattern": "sidebar",
+      "items": [
+        { "key": "agenda", "label_i18n": "nav.pro.agenda", "screen": "KD1" },
+        { "key": "commissions", "label_i18n": "nav.pro.commissions", "screen": "KD3" },
+        { "key": "time_off", "label_i18n": "nav.pro.time_off_and_swaps", "screen": "KD4" },
+        { "key": "profile", "label_i18n": "nav.pro.profile_and_portfolio", "screen": "KD5" }
+      ]
+    },
+    "consumer-web": {
+      "host": "app.koovela.com",
+      "pattern": "top-bar",
+      "figma_component": "Barra superior · Web",
+      "items": [
+        { "key": "appointments", "label_i18n": "nav.consumer.appointments", "screen": "W06" },
+        { "key": "series", "label_i18n": "nav.consumer.series", "screen": "W16" },
+        { "key": "loyalty", "label_i18n": "nav.consumer.loyalty", "screen": "W17" },
+        { "key": "profile", "label_i18n": "nav.consumer.profile", "screen": "W20" }
+      ],
+      "public_pages": [
+        { "path": "/{slug}", "host": "koovela.com", "screen": "W07", "ssr": true },
+        { "path": "/{slug}/{branch}", "host": "koovela.com", "screen": "W07", "ssr": true },
+        { "path": "/404", "host": "koovela.com", "screen": "not-found", "status": 404 }
+      ]
+    },
+    "tenant-web": {
+      "host": "painel.koovela.com",
+      "pattern": "sidebar",
+      "figma_component": "Barra lateral · Painel do Cliente",
+      "header": { "branch_selector": true },
+      "items": [
+        { "key": "home", "label_i18n": "nav.tenant.home", "screen": "P01", "alt_screen": "P02" },
+        { "key": "agenda", "label_i18n": "nav.tenant.agenda", "screen": "P03" },
+        { "key": "clients", "label_i18n": "nav.tenant.clients", "screen": "P11" },
+        { "key": "catalog", "label_i18n": "nav.tenant.catalog", "screen": "P12" },
+        { "key": "team", "label_i18n": "nav.tenant.team", "screen": "P15" },
+        { "key": "loyalty", "label_i18n": "nav.tenant.loyalty", "screen": "P20" },
+        { "key": "idle_slots", "label_i18n": "nav.tenant.idle_slots", "screen": "P08" },
+        { "key": "reviews", "label_i18n": "nav.tenant.reviews", "screen": "P24" },
+        { "key": "finance", "label_i18n": "nav.tenant.finance", "screen": "P21" },
+        { "key": "invoices", "label_i18n": "nav.tenant.invoices", "screen": "P23" },
+        { "key": "settings", "label_i18n": "nav.tenant.settings", "screen": "P26" }
+      ],
+      "outside_menu": ["O01", "O02", "O03", "O04", "O05"]
+    },
+    "admin-web": {
+      "host": "admin.koovela.com",
+      "pattern": "sidebar",
+      "theme": "dark",
+      "figma_component": "Barra lateral · Back-office",
+      "items": [
+        { "key": "overview", "label_i18n": "nav.admin.overview", "screen": "G01" },
+        { "key": "tenants", "label_i18n": "nav.admin.tenants", "screen": "G02" },
+        { "key": "schemas", "label_i18n": "nav.admin.schemas", "screen": "G03" },
+        { "key": "onboarding_kyc", "label_i18n": "nav.admin.onboarding_kyc", "screen": "G04" },
+        { "key": "impersonation", "label_i18n": "nav.admin.impersonation", "screen": "G05" },
+        { "key": "grants", "label_i18n": "nav.admin.grants", "screen": "G06" },
+        { "key": "billing", "label_i18n": "nav.admin.billing", "screen": "G07" },
+        { "key": "antifraud", "label_i18n": "nav.admin.antifraud", "screen": "G08" },
+        { "key": "feature_flags", "label_i18n": "nav.admin.feature_flags", "screen": "G09" },
+        { "key": "audit", "label_i18n": "nav.admin.audit", "screen": "G10" },
+        { "key": "bi", "label_i18n": "nav.admin.bi", "screen": "B01", "external_host": "bi.koovela.com" }
+      ]
+    }
+  }
+}

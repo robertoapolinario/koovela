@@ -1,0 +1,46 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Engagement — eventos de avaliação (spec 016)
+  version: 1.0.0
+  description: >
+    Outbox do engagement → engagement.events. Sem texto do comentário nem dados do autor.
+    Consome scheduling.appointment.completed.v1 (009) para agendar o pedido de avaliação (011).
+defaultContentType: application/json
+channels:
+  engagementEvents:
+    address: engagement.events
+    messages:
+      reviewChanged: { $ref: '#/components/messages/ReviewChanged' }
+      replyPosted: { $ref: '#/components/messages/ReplyPosted' }
+      reportChanged: { $ref: '#/components/messages/ReportChanged' }
+operations:
+  publishReviewEvents:
+    action: send
+    channel: { $ref: '#/channels/engagementEvents' }
+components:
+  messages:
+    ReviewChanged:
+      name: engagement.review.changed
+      summary: event_type ∈ engagement.review.{submitted,held,published,edited,removed}.v1 — alimenta projeções e a vitrine (024)
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              review_id: { type: string, format: uuid }
+              appointment_id: { type: string, format: uuid }
+              business_id: { type: string, format: uuid }
+              branch_id: { type: string, format: uuid }
+              professional_id: { type: string, format: uuid }
+              rating: { type: integer }
+              visibility: { type: string, enum: [public, private] }
+              low_rating: { type: boolean, description: 1 ou 2 estrelas (aviso à equipe) }
+    ReplyPosted:
+      name: engagement.review_reply.posted.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { review_id: { type: string, format: uuid }, consumer_id: { type: string, format: uuid } } } } }
+    ReportChanged:
+      name: engagement.review_report.changed
+      summary: event_type ∈ engagement.review_report.{opened,decided}.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { report_id: { type: string, format: uuid }, review_id: { type: string, format: uuid }, decision: { type: [string, 'null'] } } } } }
