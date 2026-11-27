@@ -1,0 +1,106 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Workforce — eventos (spec 007)
+  version: 1.0.0
+  description: >
+    Outbox do workforce → workforce.events. Envelope da spec 001. Sem PII (motivo de folga não sai em evento).
+    Consome tenancy.client.onboarded.v1, tenancy.branch.hours_changed.v1, tenancy.branch.cloned.v1 (005)
+    e, a partir das specs 009 e 012, eventos de agendamento e pagamento para a prévia de comissão.
+defaultContentType: application/json
+channels:
+  workforceEvents:
+    address: workforce.events
+    messages:
+      professionalCreated: { $ref: '#/components/messages/ProfessionalChanged' }
+      professionalAvailabilitySet: { $ref: '#/components/messages/ProfessionalChanged' }
+      engagementEnded: { $ref: '#/components/messages/ProfessionalChanged' }
+      availabilityChanged: { $ref: '#/components/messages/AvailabilityChanged' }
+      timeOffDecided: { $ref: '#/components/messages/TimeOffDecided' }
+      swapApproved: { $ref: '#/components/messages/SwapApproved' }
+      commissionRuleChanged: { $ref: '#/components/messages/CommissionRuleChanged' }
+      branchNoActiveProfessionals: { $ref: '#/components/messages/BranchNoActiveProfessionals' }
+operations:
+  publishWorkforceEvents:
+    action: send
+    channel: { $ref: '#/channels/workforceEvents' }
+components:
+  messages:
+    ProfessionalChanged:
+      name: workforce.professional.changed
+      summary: event_type ∈ workforce.professional.{created,availability_set}.v1, workforce.engagement.ended.v1
+      payload:
+        type: object
+        properties:
+          event_id: { type: string, format: uuid }
+          event_type: { type: string }
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              professional_id: { type: string, format: uuid }
+              person_id: { type: string, format: uuid }
+              business_id: { type: string, format: uuid }
+              branch_ids: { type: array, items: { type: string, format: uuid } }
+              end_date: { type: [string, 'null'], format: date }
+    AvailabilityChanged:
+      name: workforce.availability.changed.v1
+      summary: Invalida o cache de disponibilidade (008) e alimenta a lista de afetados (009)
+      payload:
+        type: object
+        properties:
+          event_id: { type: string, format: uuid }
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            required: [professional_id, from, to, cause]
+            properties:
+              professional_id: { type: string, format: uuid }
+              branch_id: { type: [string, 'null'], format: uuid }
+              from: { type: string, format: date-time }
+              to: { type: string, format: date-time }
+              cause: { type: string, enum: [schedule, time_off, block, swap, branch_hours, engagement_end] }
+    TimeOffDecided:
+      name: workforce.time_off.decided.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              time_off_id: { type: string, format: uuid }
+              professional_id: { type: string, format: uuid }
+              state: { type: string, enum: [approved, rejected, expired] }
+              starts_at: { type: string, format: date-time }
+              ends_at: { type: string, format: date-time }
+    SwapApproved:
+      name: workforce.swap.approved.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              swap_id: { type: string, format: uuid }
+              proposer_id: { type: string, format: uuid }
+              peer_id: { type: string, format: uuid }
+              date_a: { type: string, format: date }
+              date_b: { type: string, format: date }
+    BranchNoActiveProfessionals:
+      name: workforce.branch.no_active_professionals.v1
+      summary: Último colaborador ativo da filial encerrado; o painel avisa e a página pública mostra "sem horários disponíveis"
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { branch_id: { type: string, format: uuid }, since: { type: string, format: date } } } } }
+    CommissionRuleChanged:
+      name: workforce.commission_rule.changed.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              rule_id: { type: string, format: uuid }
+              version_id: { type: string, format: uuid }
+              level: { type: string }
+              valid_from: { type: string, format: date-time }

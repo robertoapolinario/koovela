@@ -1,0 +1,442 @@
+openapi: 3.1.0
+info:
+  title: Koovela Identity — autenticação, conta, equipe e suporte
+  version: 1.0.0
+  description: >
+    Spec 003. Todas as rotas passam pelo gateway (api.koovela.com/v1). Cada operação declara
+    `x-koovela-action` (id da matriz RBAC). Web usa cookies HttpOnly + cabeçalho X-Koovela-CSRF;
+    apps usam Authorization: Bearer. Erros: Problem Details da spec 001.
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/internal/identity/consumers/pre-register:
+    post:
+      operationId: preRegisterConsumer
+      x-koovela-action: internal.identity.consumer.pre_register
+      summary: Pré-cadastro pela equipe (spec 009), sem OTP; só credencial de serviço
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, phone, tenant_id]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+                phone: { type: string, description: E.164 }
+                tenant_id: { type: string, format: uuid }
+      responses:
+        '200': { description: 'consumer_id existente (mesmo celular) ou novo, em pre_registered; nunca devolve dados de outro tenant' }
+  /v1/auth/otp/request:
+    post:
+      operationId: requestOtp
+      x-koovela-action: public.otp.request
+      summary: Pede código por SMS (resposta idêntica para número cadastrado ou não)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [phone]
+              properties:
+                phone: { type: string, description: 'E.164, +55' }
+                name: { type: string, maxLength: 120, description: Só no primeiro cadastro; ignorado se a conta existe }
+                turnstile_token: { type: string, description: Exigido a partir do 2º pedido da origem }
+      responses:
+        '202':
+          description: Sempre igual
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [challenge_id, resend_after_seconds]
+                properties:
+                  challenge_id: { type: string, format: uuid }
+                  resend_after_seconds: { type: integer, example: 60 }
+        '429': { $ref: '#/components/responses/Problem' }
+  /v1/auth/otp/verify:
+    post:
+      operationId: verifyOtp
+      x-koovela-action: public.otp.verify
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [challenge_id, code, surface]
+              properties:
+                challenge_id: { type: string, format: uuid }
+                code: { type: string, pattern: '^[0-9]{6}$' }
+                surface: { type: string, enum: [consumer_app, consumer_web] }
+                device_name: { type: string, maxLength: 80 }
+                birth_date: { type: string, format: date, description: Só quando exigido (celular reciclado) }
+      responses:
+        '200':
+          description: Autenticado (cria a conta se o celular é novo)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResult' }
+        '400': { $ref: '#/components/responses/Problem' }
+  /v1/auth/staff/login:
+    post:
+      operationId: staffLogin
+      x-koovela-action: public.staff.login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, password, surface]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 12 }
+                surface: { type: string, enum: [tenant_web, pro_app, admin_web] }
+      responses:
+        '200':
+          description: Primeiro fator aceito; exige segundo fator
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [mfa_challenge_id, methods]
+                properties:
+                  mfa_challenge_id: { type: string, format: uuid }
+                  methods: { type: array, items: { type: string, enum: [totp, passkey, recovery_code] } }
+        '401': { $ref: '#/components/responses/Problem' }
+        '423': { $ref: '#/components/responses/Problem' }
+  /v1/auth/staff/mfa:
+    post:
+      operationId: staffMfa
+      x-koovela-action: public.staff.mfa
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mfa_challenge_id, method]
+              properties:
+                mfa_challenge_id: { type: string, format: uuid }
+                method: { type: string, enum: [totp, recovery_code] }
+                code: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResult' }
+          description: Autenticado; se houver vários tenants, `tenants` lista as opções
+  /v1/auth/passkey/options:
+    post:
+      operationId: passkeyOptions
+      x-koovela-action: public.passkey.options
+      security: []
+      responses:
+        '200': { description: Opções WebAuthn (registro ou autenticação) }
+  /v1/auth/passkey/verify:
+    post:
+      operationId: passkeyVerify
+      x-koovela-action: public.passkey.verify
+      security: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResult' }
+          description: Passkey vale como os dois fatores
+  /v1/auth/refresh:
+    post:
+      operationId: refreshSession
+      x-koovela-action: session.refresh
+      security: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResult' }
+          description: Novo par; o refresh anterior fica inválido (reutilização revoga a família)
+        '401': { $ref: '#/components/responses/Problem' }
+  /v1/auth/step-up:
+    post:
+      operationId: stepUp
+      x-koovela-action: session.step_up
+      summary: Reautenticação com segundo fator para ações sensíveis (≤ 5 min)
+      responses:
+        '200': { description: auth_time renovado }
+  /v1/auth/switch-tenant:
+    post:
+      operationId: switchTenant
+      x-koovela-action: session.switch_tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant_id]
+              properties:
+                tenant_id: { type: string, format: uuid, description: Só tenants em que a pessoa tem vínculo ativo }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResult' }
+          description: Nova credencial com o tenant ativo
+        '404': { $ref: '#/components/responses/Problem' }
+  /v1/me/sessions:
+    get:
+      operationId: listMySessions
+      x-koovela-action: self.sessions.list
+      responses:
+        '200':
+          description: Aparelhos conectados
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        session_id: { type: string, format: uuid }
+                        surface: { type: string }
+                        device_name: { type: string }
+                        country: { type: string }
+                        last_used_at: { type: string, format: date-time }
+                        current: { type: boolean }
+  /v1/me/sessions/{session_id}:
+    delete:
+      operationId: revokeMySession
+      x-koovela-action: self.sessions.revoke
+      parameters: [ { name: session_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '204': { description: Revogada em até 1 minuto }
+  /v1/consumer/me:
+    get:
+      operationId: getConsumerProfile
+      x-koovela-action: consumer.profile.read
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsumerProfile' }
+          description: Dados com CPF e telefone mascarados
+    patch:
+      operationId: updateConsumerProfile
+      x-koovela-action: consumer.profile.update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, maxLength: 120 }
+                email: { type: string, format: email }
+                cpf: { type: string, pattern: '^[0-9]{11}$' }
+                birth_date: { type: string, format: date }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsumerProfile' }
+          description: Etapa 2 concluída quando os três campos estão presentes
+        '422': { $ref: '#/components/responses/Problem' }
+  /v1/consumer/me/deletion:
+    post:
+      operationId: requestAccountDeletion
+      x-koovela-action: consumer.account.delete
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [challenge_id, code]
+              properties:
+                challenge_id: { type: string, format: uuid }
+                code: { type: string, pattern: '^[0-9]{6}$' }
+                acknowledge_future_appointments: { type: boolean }
+      responses:
+        '202': { description: Conta desativada; pedido de eliminação registrado (spec 022) }
+        '409': { $ref: '#/components/responses/Problem' }
+  /v1/tenant/team/invitations:
+    post:
+      operationId: inviteTeamMember
+      x-koovela-action: team.invite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, role]
+              properties:
+                email: { type: string, format: email }
+                role: { type: string, enum: [manager, receptionist, professional, owner] }
+                branch_ids: { type: array, items: { type: string, format: uuid } }
+      responses:
+        '201': { description: Convite enviado, válido por 7 dias }
+  /v1/tenant/team/members/{membership_id}:
+    patch:
+      operationId: updateTeamMember
+      x-koovela-action: team.update_role
+      parameters: [ { name: membership_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role: { type: string, enum: [owner, manager, receptionist, professional] }
+                branch_ids: { type: array, items: { type: string, format: uuid } }
+                grants: { type: array, items: { type: string, enum: [manager.billing.view, manager.loyalty.configure, manager.care_note.read] } }
+      responses:
+        '200': { description: Vale na próxima requisição }
+    delete:
+      operationId: removeTeamMember
+      x-koovela-action: team.remove
+      parameters: [ { name: membership_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '204': { description: Sessões no tenant encerradas em até 1 minuto }
+        '409': { $ref: '#/components/responses/Problem' }
+  /v1/tenant/team/members/{membership_id}/sessions:
+    delete:
+      operationId: revokeTeamMemberSessions
+      x-koovela-action: team.revoke_sessions
+      parameters: [ { name: membership_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '204': { description: Sessões do membro no tenant encerradas em até 1 minuto, sem remover o papel (REQ-IDN-032) }
+  /v1/invitations/{token}/accept:
+    post:
+      operationId: acceptInvitation
+      x-koovela-action: public.invitation.accept
+      security: []
+      parameters: [ { name: token, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '200': { description: Vínculo criado após credencial e segundo fator }
+  /v1/tenant/support-sessions:
+    get:
+      operationId: listTenantSupportSessions
+      x-koovela-action: support_session.list_for_tenant
+      responses:
+        '200': { description: Sessões do tenant com atendente, justificativa, início, fim e ações }
+  /v1/tenant/support-sessions/active:
+    get:
+      operationId: getActiveSupportSession
+      x-koovela-action: support_session.banner
+      responses:
+        '200': { description: Sessão em andamento (nome do atendente e fim) ou null }
+  /v1/tenant/support-sessions/{id}/end:
+    post:
+      operationId: endSupportSessionByTenant
+      x-koovela-action: support_session.end_by_tenant
+      parameters: [ { name: id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '204': { description: Encerrada }
+  /v1/admin/support-sessions:
+    post:
+      operationId: openSupportSession
+      x-koovela-action: support_session.open
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [tenant_id, justification]
+              properties:
+                tenant_id: { type: string, format: uuid }
+                justification: { type: string, minLength: 20, maxLength: 500 }
+                ticket_ref: { type: string, maxLength: 64 }
+                duration_minutes: { type: integer, minimum: 5, maximum: 60, default: 30 }
+      responses:
+        '201':
+          description: Sessão aberta; credencial kind=support
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResult' }
+  /v1/admin/platform-admins:
+    post:
+      operationId: createPlatformAdmin
+      x-koovela-action: platform_admin.create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, profile]
+              properties:
+                email: { type: string, format: email }
+                profile: { type: string, enum: [support, finance_ops, growth, sre] }
+                support_level: { type: string, enum: [n1, n2] }
+      responses:
+        '201': { description: Convite enviado }
+  /v1/admin/platform-admins/{account_id}/deactivate:
+    post:
+      operationId: deactivatePlatformAdmin
+      x-koovela-action: platform_admin.deactivate
+      parameters: [ { name: account_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '204': { description: Sessões encerradas em até 1 minuto; lembrete de rotação de segredos }
+components:
+  responses:
+    Problem:
+      description: >
+        Problem Details. Códigos — identity.otp_rate_limited, identity.otp_invalid,
+        identity.otp_expired, identity.cpf_invalid, identity.cpf_taken, identity.underage,
+        identity.login_failed, identity.account_locked, identity.mfa_required,
+        identity.step_up_required, identity.refresh_reused, identity.last_owner,
+        identity.invitation_expired, authz.forbidden
+      content:
+        application/problem+json:
+          schema: { $ref: '../../001-fundacao-plataforma/contracts/problem-details.schema.json' }
+  schemas:
+    AuthResult:
+      type: object
+      required: [session_id, kind, access_expires_at]
+      properties:
+        session_id: { type: string, format: uuid }
+        kind: { type: string, enum: [consumer, staff, platform_admin, support] }
+        access_token: { type: string, description: Só nos apps; na web vai em cookie HttpOnly }
+        refresh_token: { type: string, description: Só nos apps }
+        access_expires_at: { type: string, format: date-time }
+        active_tenant_id: { type: [string, 'null'], format: uuid }
+        tenants:
+          type: array
+          description: Tenants em que a pessoa tem vínculo (equipe)
+          items:
+            type: object
+            properties:
+              tenant_id: { type: string, format: uuid }
+              roles: { type: array, items: { type: string } }
+        profile_stage: { type: integer, enum: [1, 2] }
+        requires_birth_date: { type: boolean }
+    ConsumerProfile:
+      type: object
+      required: [consumer_id, name, phone_masked, profile_stage]
+      properties:
+        consumer_id: { type: string, format: uuid }
+        name: { type: string }
+        phone_masked: { type: string, example: '+55 11 9****-4321' }
+        email: { type: [string, 'null'] }
+        email_verified: { type: boolean }
+        cpf_masked: { type: [string, 'null'], example: '***.456.789-**' }
+        birth_date: { type: [string, 'null'], format: date }
+        profile_stage: { type: integer, enum: [1, 2] }

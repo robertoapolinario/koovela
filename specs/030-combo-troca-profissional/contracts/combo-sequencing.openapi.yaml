@@ -1,0 +1,119 @@
+openapi: 3.1.0
+info:
+  title: Koovela Scheduling — combo com troca de profissional
+  version: 1.0.0
+  description: Spec 030. Reserva pelo caminho atômico da 008; x-koovela-action em toda operação.
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/public/businesses/{slug}/combos/{combo_id}/starts:
+    get:
+      operationId: comboStarts
+      x-koovela-action: public.availability.combo_starts
+      security: []
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: combo_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: branch_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: date, in: query, required: true, schema: { type: string, format: date } }
+        - { name: same_professional, in: query, schema: { type: boolean } }
+      responses:
+        '200': { description: Inícios com sequência completa viável (p95 ≤ 1 s) }
+  /v1/public/businesses/{slug}/combos/{combo_id}/sequences:
+    get:
+      operationId: comboSequences
+      x-koovela-action: public.availability.combo_sequences
+      security: []
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: combo_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: branch_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: start, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: pinned, in: query, schema: { type: string, description: 'Etapas fixadas, ex.: 1:uuid,3:uuid' } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  suggested: { $ref: '#/components/schemas/Sequence' }
+                  options_by_step:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        position: { type: integer }
+                        professionals:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              professional_id: { type: string, format: uuid }
+                              viable: { type: boolean }
+                              reason: { type: [string, 'null'], enum: [busy, breaks_interval, not_in_branch, null] }
+          description: Sequência sugerida e opções de troca por etapa
+  /v1/consumer/combo-holds:
+    post:
+      operationId: holdComboSequence
+      x-koovela-action: consumer.availability.hold_combo
+      parameters: [ { name: Idempotency-Key, in: header, required: true, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [combo_id, branch_id, sequence]
+              properties:
+                combo_id: { type: string, format: uuid }
+                branch_id: { type: string, format: uuid }
+                sequence: { $ref: '#/components/schemas/Sequence' }
+      responses:
+        '201': { description: Todas as etapas reservadas (hold da 008) }
+        '409':
+          content:
+            application/json:
+              schema: { type: object, properties: { code: { const: scheduling.slot_taken }, next_viable: { $ref: '#/components/schemas/Sequence' } } }
+          description: Nenhuma etapa ocupada; próxima sequência viável sugerida
+  /v1/tenant/appointments/{appointment_id}/steps/{position}/professional:
+    put:
+      operationId: changeStepProfessional
+      x-koovela-action: scheduling.appointment.change_step_professional
+      parameters:
+        - { name: appointment_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: position, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [professional_id], properties: { professional_id: { type: string, format: uuid } } }
+      responses:
+        '200': { description: Só aquela etapa muda; consumidor avisado }
+  /v1/tenant/step-delay-alerts/{alert_id}/decide:
+    post:
+      operationId: decideStepDelay
+      x-koovela-action: scheduling.step_delay.decide
+      parameters: [ { name: alert_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [decision], properties: { decision: { type: string, enum: [wait, change_professional, reschedule_step] }, professional_id: { type: string, format: uuid }, new_start: { type: string, format: date-time } } }
+      responses:
+        '200': { description: Decisão da Recepção aplicada }
+components:
+  schemas:
+    Sequence:
+      type: object
+      properties:
+        start: { type: string, format: date-time }
+        total_wait_min: { type: integer }
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              position: { type: integer }
+              service_id: { type: string, format: uuid }
+              professional_id: { type: string, format: uuid }
+              starts_at: { type: string, format: date-time }
+              ends_at: { type: string, format: date-time }

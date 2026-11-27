@@ -1,0 +1,169 @@
+openapi: 3.1.0
+info:
+  title: Koovela — turmas, inscrições, check-in, pacotes e planos de aulas
+  version: 1.0.0
+  description: Spec 026. x-koovela-action em toda operação; Idempotency-Key em inscrições, check-in e assinatura.
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/public/businesses/{slug}/classes:
+    get:
+      operationId: listClassSessions
+      x-koovela-action: public.classes.list
+      security: []
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: service_id, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Aulas com vagas restantes, instrutor, nível, preço avulso, pacotes e planos aceitos }
+  /v1/consumer/class-sessions/{session_id}/enrollments:
+    post:
+      operationId: enroll
+      x-koovela-action: consumer.classes.enroll
+      parameters:
+        - { name: session_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pay_mode]
+              properties:
+                pay_mode: { type: string, enum: [single, credit, plan] }
+                subject_id: { type: string, format: uuid, description: Menor inscrito pelo responsável }
+                balance_account_id: { type: string, format: uuid }
+                membership_id: { type: string, format: uuid }
+      responses:
+        '201': { description: Vaga reservada (crédito ou uso reservado; avulso segue para pagamento) }
+        '409':
+          description: classes.full (com next_sessions), classes.already_enrolled, classes.plan_limit_reached, payments.insufficient_balance, memberships.suspended
+  /v1/consumer/class-enrollments/{enrollment_id}/cancel:
+    post:
+      operationId: cancelEnrollment
+      x-koovela-action: consumer.classes.cancel
+      parameters: [ { name: enrollment_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Cancelada pela política (devolve ou consome) }
+  /v1/consumer/class-enrollments/{enrollment_id}/qr:
+    get:
+      operationId: getStudentQr
+      x-koovela-action: consumer.classes.qr
+      parameters: [ { name: enrollment_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Token assinado de curta duração para o check-in }
+  /v1/consumer/class-sessions/{session_id}/checkin:
+    post:
+      operationId: studioQrCheckin
+      x-koovela-action: consumer.classes.checkin
+      parameters: [ { name: session_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [studio_qr_token], properties: { studio_qr_token: { type: string } } }
+      responses:
+        '200': { description: Presença registrada (QR do estúdio) }
+        '409': { description: classes.checkin_window_closed, classes.not_enrolled }
+  /v1/consumer/class-credits:
+    get:
+      operationId: listClassCredits
+      x-koovela-action: consumer.classes.credits
+      responses:
+        '200': { description: Disponível, reservado, usado e validade por pacote }
+  /v1/consumer/memberships:
+    get:
+      operationId: listMyMemberships
+      x-koovela-action: consumer.membership.read
+      responses:
+        '200': { description: Planos, uso no período, próxima cobrança, estado }
+    post:
+      operationId: subscribePlan
+      x-koovela-action: consumer.membership.subscribe
+      parameters: [ { name: Idempotency-Key, in: header, required: true, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan_id, saved_card_id, consent_recurring]
+              properties:
+                plan_id: { type: string, format: uuid }
+                saved_card_id: { type: string, format: uuid }
+                consent_recurring: { type: boolean, const: true }
+                commitment_accepted: { type: boolean, description: Obrigatório quando o plano tem fidelidade }
+      responses:
+        '201': { description: Cobrado no ato (split + nota) }
+  /v1/consumer/memberships/{membership_id}/{action}:
+    post:
+      operationId: membershipAction
+      x-koovela-action: consumer.membership.manage
+      parameters:
+        - { name: membership_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [cancel, change-card, retry-payment] } }
+      responses:
+        '200': { description: Cancelamento vale no fim do ciclo pago (respeitando fidelidade aceita) }
+  /v1/tenant/class-groups:
+    post:
+      operationId: createClassGroup
+      x-koovela-action: classes.group.manage
+      responses:
+        '201': { description: Turma criada; aulas geradas até o horizonte; aviso de sala sobreposta }
+  /v1/tenant/class-groups/{group_id}:
+    patch:
+      operationId: updateClassGroup
+      x-koovela-action: classes.group.manage
+      parameters: [ { name: group_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Vale para aulas futuras }
+        '409': { description: classes.capacity_below_enrolled }
+  /v1/tenant/class-sessions/{session_id}/{action}:
+    post:
+      operationId: sessionAction
+      x-koovela-action: classes.session.manage
+      parameters:
+        - { name: session_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [cancel, change-instructor] } }
+      responses:
+        '200': { description: Aviso aos inscritos; créditos devolvidos; avulsos estornados }
+  /v1/pro/class-sessions/{session_id}/roster:
+    get:
+      operationId: getRoster
+      x-koovela-action: pro.classes.roster
+      parameters: [ { name: session_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Lista de inscritos e QR do estúdio rotativo }
+  /v1/pro/class-sessions/{session_id}/checkins:
+    post:
+      operationId: instructorCheckins
+      x-koovela-action: pro.classes.checkin
+      summary: Lote de check-ins (QR do aluno ou manual), aceita envio atrasado por falta de rede
+      parameters:
+        - { name: session_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      enrollment_id: { type: string, format: uuid }
+                      student_qr_token: { type: string }
+                      mode: { type: string, enum: [student_qr, manual] }
+                      recorded_at: { type: string, format: date-time }
+      responses:
+        '200': { description: Resultado por item (fora da janela recusado) }
+  /v1/pro/class-sessions/{session_id}/walk-ins:
+    post:
+      operationId: addWalkIn
+      x-koovela-action: pro.classes.walk_in
+      parameters: [ { name: session_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '201': { description: Inscrição, pagamento e presença juntos, se houver vaga }

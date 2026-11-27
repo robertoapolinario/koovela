@@ -1,0 +1,275 @@
+openapi: 3.1.0
+info:
+  title: Koovela — atendimento no endereço e orçamentos (spec 033)
+  version: 1.0.0
+  description: >
+    Spec 033. x-koovela-action em toda operação; tenant resolvido no gateway.
+    Extensões retrocompatíveis: 006 (location, quote_mode na versão do serviço), 008 (address_ref na disponibilidade/hold),
+    009 (frozen.quote_id), 024 (filtro at_my_address), 025 (subject kind vehicle).
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/tenant/branches/{branch_id}/service-area:
+    get:
+      operationId: getServiceArea
+      x-koovela-action: scheduling.service_area.read
+      parameters:
+        - { name: branch_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Versão vigente, content: { application/json: { schema: { $ref: '#/components/schemas/ServiceArea' } } } }
+    put:
+      operationId: setServiceArea
+      x-koovela-action: scheduling.service_area.write
+      parameters:
+        - { name: branch_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content: { application/json: { schema: { $ref: '#/components/schemas/ServiceArea' } } }
+      responses:
+        '200': { description: Nova versão; emite scheduling.branch.service_area_changed.v1 }
+  /v1/consumer/addresses:
+    get:
+      operationId: listMyAddresses
+      x-koovela-action: consumer.address.read
+      responses:
+        '200': { description: Endereços da conta (decifrados só para o próprio consumidor) }
+    post:
+      operationId: addMyAddress
+      x-koovela-action: consumer.address.write
+      requestBody:
+        content: { application/json: { schema: { $ref: '#/components/schemas/Address' } } }
+      responses:
+        '201': { description: Criado; CEP verificado }
+        '422': { description: 'address.cep_not_found | address.reference_point_required | address.limit_reached' }
+  /v1/consumer/addresses/{address_id}:
+    delete:
+      operationId: removeMyAddress
+      x-koovela-action: consumer.address.write
+      parameters:
+        - { name: address_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Removido da conta; snapshots de agendamentos seguem a retenção da 022 }
+  /v1/public/branches/{branch_id}/services/{service_id}/coverage:
+    get:
+      operationId: checkCoverage
+      x-koovela-action: consumer.coverage.check
+      parameters:
+        - { name: branch_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: service_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: address_id, in: query, schema: { type: string, format: uuid } }
+        - { name: cep, in: query, schema: { type: string, pattern: '^[0-9]{8}$' } }
+        - { name: neighborhood, in: query, schema: { type: string } }
+      responses:
+        '200':
+          content: { application/json: { schema: { type: object, properties: { covered: { type: boolean }, message: { type: [string, 'null'] } } } } }
+          description: Fora da área → covered=false e "este estabelecimento não atende no seu endereço"
+  /v1/consumer/appointments/{appointment_id}/address:
+    put:
+      operationId: changeAppointmentAddress
+      x-koovela-action: consumer.appointment.change_address
+      parameters:
+        - { name: appointment_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [address_id], properties: { address_id: { type: string, format: uuid } } } } }
+      responses:
+        '200': { description: Aceito dentro da área; deslocamento recomposto; Recepção avisada }
+        '409': { description: 'scheduling.travel_conflict' }
+        '422': { description: 'scheduling.out_of_service_area' }
+  /v1/pro/route/today:
+    get:
+      operationId: getMyRouteToday
+      x-koovela-action: pro.route.read
+      description: Só atendimentos atribuídos ao colaborador, do dia local, no endereço, não encerrados
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  day: { type: string, format: date }
+                  wipe_at: { type: string, format: date-time }
+                  stops:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        appointment_id: { type: string, format: uuid }
+                        starts_at: { type: string, format: date-time }
+                        consumer_display_name: { type: string }
+                        service_name: { type: string }
+                        address_text: { type: string }
+                        complement: { type: [string, 'null'] }
+                        reference_point: { type: [string, 'null'] }
+                        vehicle: { type: [object, 'null'], properties: { type: { type: string }, make: { type: string }, model: { type: string }, color: { type: string }, plate: { type: [string, 'null'] } } }
+                        maps_query: { type: string, description: Texto para URL do app de mapas }
+                        state: { type: string }
+                        absent_allowed_from: { type: string, format: date-time, description: Fim da tolerância (010) }
+          description: Rota do dia
+  /v1/pro/appointments/{appointment_id}/field-events:
+    post:
+      operationId: postFieldEvent
+      x-koovela-action: pro.route.field_event
+      parameters:
+        - { name: appointment_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, client_op_id]
+              properties:
+                kind: { type: string, enum: [arrived, running_late, absent] }
+                estimate_min: { type: integer, minimum: 5, maximum: 120 }
+                client_op_id: { type: string, description: Idempotência da fila offline }
+      responses:
+        '200': { description: 'arrived → EM_ATENDIMENTO; absent → NO_SHOW (010); running_late → aviso ao próximo consumidor' }
+        '403': { description: 'scheduling.address_not_accessible' }
+        '409': { description: 'scheduling.tolerance_not_elapsed' }
+  /v1/consumer/quote-requests:
+    get:
+      operationId: listMyQuoteRequests
+      x-koovela-action: consumer.quote.read
+      responses:
+        '200': { description: Projeção consumer_quotes_index }
+    post:
+      operationId: createQuoteRequest
+      x-koovela-action: consumer.quote.create
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [branch_id, service_id, description]
+              properties:
+                branch_id: { type: string, format: uuid }
+                service_id: { type: string, format: uuid }
+                description: { type: string, maxLength: 1000 }
+                address_id: { type: [string, 'null'], format: uuid }
+                subject_id: { type: [string, 'null'], format: uuid }
+                date_preferences: { type: array, maxItems: 3, items: { type: object, properties: { from: { type: string, format: date-time }, to: { type: string, format: date-time } } } }
+                photo_count: { type: integer, minimum: 0, maximum: 5 }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  request_id: { type: string, format: uuid }
+                  response_due_at: { type: string, format: date-time }
+                  photo_uploads: { type: array, items: { type: object, properties: { photo_id: { type: string }, put_url: { type: string }, expires_at: { type: string, format: date-time } } } }
+          description: Pedido criado com URLs assinadas de upload (10 min)
+        '422': { description: 'quotes.not_offered | scheduling.out_of_service_area' }
+  /v1/consumer/quote-requests/{request_id}:
+    get:
+      operationId: getMyQuoteRequest
+      x-koovela-action: consumer.quote.read
+      parameters:
+        - { name: request_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Pedido, mensagens, fotos (URLs assinadas de 5 min) e orçamento }
+  /v1/consumer/quote-requests/{request_id}/messages:
+    post:
+      operationId: replyQuoteInfo
+      x-koovela-action: consumer.quote.reply
+      parameters:
+        - { name: request_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [body], properties: { body: { type: string, maxLength: 1000 } } } } }
+      responses:
+        '200': { description: Volta a sent; prazo reiniciado }
+  /v1/consumer/quotes/{quote_id}/accept:
+    post:
+      operationId: acceptQuote
+      x-koovela-action: consumer.quote.accept
+      parameters:
+        - { name: quote_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          content: { application/json: { schema: { type: object, properties: { booking_context_token: { type: string, description: 'Abre a escolha de horário (008) com serviço, duração e preço do orçamento' } } } } }
+          description: Aceito
+        '409': { description: 'quotes.quote_expired — só pedir novo' }
+  /v1/consumer/quotes/{quote_id}/reject:
+    post:
+      operationId: rejectQuote
+      x-koovela-action: consumer.quote.reject
+      parameters:
+        - { name: quote_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: rejected_by_consumer }
+  /v1/tenant/quote-requests:
+    get:
+      operationId: listReceivedQuoteRequests
+      x-koovela-action: quotes.read
+      parameters:
+        - { name: branch_id, in: query, schema: { type: string, format: uuid } }
+        - { name: state, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Orçamentos recebidos, com prazo restante }
+  /v1/tenant/quote-requests/{request_id}/answer:
+    post:
+      operationId: answerQuoteRequest
+      x-koovela-action: quotes.answer
+      parameters:
+        - { name: request_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - { type: object, required: [kind, price_cents, duration_min], properties: { kind: { const: quote }, price_cents: { type: integer, minimum: 1 }, duration_min: { type: integer, multipleOf: 5, minimum: 5 }, notes: { type: string, maxLength: 1000 }, validity_days: { type: integer } } }
+                - { type: object, required: [kind, reason], properties: { kind: { const: decline }, reason: { type: string } } }
+                - { type: object, required: [kind, body], properties: { kind: { const: request_info }, body: { type: string, maxLength: 1000 } } }
+      responses:
+        '200': { description: answered | declined | info_requested }
+        '409': { description: 'quotes.request_expired | quotes.info_round_exhausted' }
+        '422': { description: 'quotes.validity_out_of_limits' }
+  /v1/tenant/quote-requests/{request_id}/photos/{photo_id}/report:
+    post:
+      operationId: reportQuotePhoto
+      x-koovela-action: quotes.report_photo
+      parameters:
+        - { name: request_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: photo_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '202': { description: Enviado à moderação (024/021) }
+  /v1/tenant/quotes/settings:
+    put:
+      operationId: setQuoteSettings
+      x-koovela-action: quotes.settings.write
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { response_hours: { type: integer }, validity_days: { type: integer } } } } }
+      responses:
+        '200': { description: Nova versão }
+        '422': { description: 'quotes.settings_out_of_limits' }
+  /v1/admin/quotes/limits:
+    put:
+      operationId: setQuoteLimits
+      x-koovela-action: admin.quotes.limits.write
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { response_hours_min: { type: integer }, response_hours_max: { type: integer }, validity_days_min: { type: integer }, validity_days_max: { type: integer } } } } }
+      responses:
+        '200': { description: Nova versão, auditada }
+components:
+  schemas:
+    ServiceArea:
+      type: object
+      required: [mode, travel_min]
+      properties:
+        mode: { type: string, enum: [radius, neighborhoods] }
+        radius_km: { type: number, minimum: 1, maximum: 100, default: 10 }
+        neighborhoods: { type: array, items: { type: object, properties: { city_ibge: { type: string }, name: { type: string } } } }
+        travel_min: { type: integer, minimum: 0, maximum: 180, multipleOf: 5, default: 30 }
+    Address:
+      type: object
+      required: [cep, street, neighborhood, city]
+      properties:
+        label: { type: string }
+        cep: { type: string, pattern: '^[0-9]{8}$' }
+        street: { type: string }
+        number: { type: [string, 'null'] }
+        complement: { type: [string, 'null'] }
+        neighborhood: { type: string }
+        city: { type: string }
+        uf: { type: string }
+        reference_point: { type: [string, 'null'], description: Obrigatório sem número ou em área rural }

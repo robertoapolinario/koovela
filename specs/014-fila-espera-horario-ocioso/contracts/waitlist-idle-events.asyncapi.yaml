@@ -1,0 +1,47 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Scheduling — eventos de fila e horário ocioso (spec 014)
+  version: 1.0.0
+  description: >
+    Consome scheduling.occupancy.{released,hold_expired}.v1 (008), scheduling.policy.slot_freed_late.v1 (010),
+    workforce.availability.changed.v1 (007), scheduling.appointment.confirmed.v1 (009).
+    Publica ofertas (a 011 envia; transacional para a fila, opt-in para o horário ocioso).
+defaultContentType: application/json
+channels:
+  schedulingEvents:
+    address: scheduling.events
+    messages:
+      offerChanged: { $ref: '#/components/messages/OfferChanged' }
+      waitlistEntryChanged: { $ref: '#/components/messages/WaitlistEntryChanged' }
+operations:
+  publishOfferEvents:
+    action: send
+    channel: { $ref: '#/channels/schedulingEvents' }
+components:
+  messages:
+    OfferChanged:
+      name: scheduling.slot_offer.changed
+      summary: event_type ∈ scheduling.slot_offer.{sent,accepted,lost,expired}.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              offer_id: { type: string, format: uuid }
+              kind: { type: string, enum: [waitlist, idle] }
+              consumer_id: { type: string, format: uuid }
+              branch_id: { type: string, format: uuid }
+              start_at: { type: string, format: date-time }
+              expires_at: { type: string, format: date-time }
+              discount_bps: { type: [integer, 'null'] }
+              round: { type: integer }
+    WaitlistEntryChanged:
+      name: scheduling.waitlist_entry.changed
+      summary: event_type ∈ scheduling.waitlist_entry.{joined,fulfilled,cancelled,expired,closed_auto}.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data: { type: object, properties: { entry_id: { type: string, format: uuid }, consumer_id: { type: string, format: uuid }, state: { type: string } } }

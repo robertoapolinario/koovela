@@ -1,0 +1,77 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Backoffice — eventos de auditoria e flags (spec 004)
+  version: 1.0.0
+  description: Outbox do backoffice → exchange backoffice.events. Envelope da spec 001. Sem PII.
+defaultContentType: application/json
+channels:
+  backofficeEvents:
+    address: backoffice.events
+    messages:
+      auditChainVerified: { $ref: '#/components/messages/AuditChain' }
+      auditChainBroken: { $ref: '#/components/messages/AuditChain' }
+      auditExported: { $ref: '#/components/messages/AuditExported' }
+      flagCreated: { $ref: '#/components/messages/FlagChanged' }
+      flagChanged: { $ref: '#/components/messages/FlagChanged' }
+      flagReverted: { $ref: '#/components/messages/FlagChanged' }
+      flagRemoved: { $ref: '#/components/messages/FlagChanged' }
+      killSwitchTriggered: { $ref: '#/components/messages/FlagChanged' }
+operations:
+  publishBackofficeEvents:
+    action: send
+    channel: { $ref: '#/channels/backofficeEvents' }
+components:
+  messages:
+    AuditChain:
+      name: backoffice.audit_chain
+      summary: event_type ∈ backoffice.audit_chain.{verified,broken}.v1
+      payload:
+        type: object
+        required: [event_id, event_type, occurred_at, data]
+        properties:
+          event_id: { type: string, format: uuid }
+          event_type: { type: string }
+          occurred_at: { type: string, format: date-time }
+          data:
+            type: object
+            required: [seal_date]
+            properties:
+              seal_date: { type: string, format: date }
+              first_seq: { type: integer }
+              last_seq: { type: integer }
+              record_count: { type: integer }
+              last_hash: { type: string }
+              first_broken_seq: { type: [integer, 'null'] }
+    AuditExported:
+      name: backoffice.audit.exported.v1
+      payload:
+        type: object
+        properties:
+          event_id: { type: string, format: uuid }
+          event_type: { const: backoffice.audit.exported.v1 }
+          occurred_at: { type: string, format: date-time }
+          data:
+            type: object
+            properties:
+              query_id: { type: string, format: uuid }
+              actor_id: { type: string, format: uuid }
+              record_count: { type: integer }
+    FlagChanged:
+      name: backoffice.feature_flag
+      summary: event_type ∈ backoffice.feature_flag.{created,changed,reverted,removed,kill_switch_triggered}.v1
+      payload:
+        type: object
+        required: [event_id, event_type, occurred_at, data]
+        properties:
+          event_id: { type: string, format: uuid }
+          event_type: { type: string }
+          occurred_at: { type: string, format: date-time }
+          data:
+            type: object
+            required: [flag_key, environment, version]
+            properties:
+              flag_key: { type: string }
+              environment: { type: string, enum: [staging, production] }
+              version: { type: integer }
+              previous_version: { type: [integer, 'null'] }
+              affected_tenants: { type: integer }

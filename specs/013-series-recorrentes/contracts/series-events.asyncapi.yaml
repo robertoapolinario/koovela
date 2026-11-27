@@ -1,0 +1,53 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Scheduling — eventos de série (spec 013)
+  version: 1.0.0
+  description: >
+    Outbox do scheduling → scheduling.events. Consome scheduling.appointment.* (009) para faltas seguidas e
+    renovação, workforce.availability.changed.v1 e workforce.engagement.ended.v1 (007), payments.balance.changed.v1 (012).
+defaultContentType: application/json
+channels:
+  schedulingEvents:
+    address: scheduling.events
+    messages:
+      seriesChanged: { $ref: '#/components/messages/SeriesChanged' }
+      occurrenceChanged: { $ref: '#/components/messages/OccurrenceChanged' }
+operations:
+  publishSeriesEvents:
+    action: send
+    channel: { $ref: '#/channels/schedulingEvents' }
+components:
+  messages:
+    SeriesChanged:
+      name: scheduling.series.changed
+      summary: >
+        event_type ∈ scheduling.series.{created,rule_changed,paused,resumed,paused_for_no_shows,
+        awaiting_payment,ended,professional_transferred}.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              series_id: { type: string, format: uuid }
+              consumer_id: { type: string, format: uuid }
+              kind: { type: string, enum: [service, lesson], description: lesson = aulas recorrentes (034) }
+              state: { type: string }
+              scope: { type: [string, 'null'] }
+              rule_version_id: { type: string, format: uuid }
+    OccurrenceChanged:
+      name: scheduling.series_occurrence.changed
+      summary: event_type ∈ scheduling.series_occurrence.{materialized,in_conflict,skipped,alternative_chosen}.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              series_id: { type: string, format: uuid }
+              sequence: { type: integer }
+              appointment_id: { type: [string, 'null'], format: uuid }
+              planned_start: { type: string, format: date-time }
+              reason: { type: [string, 'null'] }

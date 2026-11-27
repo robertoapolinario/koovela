@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.koovela.com/schemas/flags-definition.v1.json",
+  "title": "Definição de feature flags (packages/contracts/flags/flags.yaml)",
+  "description": "Cadastro versionado no repositório (REQ-FLG-001/014). Regras e valores por ambiente ficam no back-office (G09).",
+  "type": "object",
+  "required": ["flags"],
+  "additionalProperties": false,
+  "properties": {
+    "flags": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z_]+\\.[a-z_]+$" },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["description", "owner", "type", "safe_value"],
+        "additionalProperties": false,
+        "properties": {
+          "description": { "type": "string", "minLength": 10 },
+          "owner": { "type": "string", "description": "Login do responsável" },
+          "type": { "enum": ["release", "kill_switch", "ops"] },
+          "safe_value": { "type": "boolean" },
+          "remove_by": { "type": "string", "format": "date" },
+          "spec": { "type": "string", "pattern": "^[0-9]{3}$" }
+        },
+        "if": { "properties": { "type": { "const": "release" } } },
+        "then": { "required": ["remove_by"] }
+      }
+    }
+  },
+  "examples": [
+    {
+      "flags": {
+        "platform.example_banner": { "description": "Faixa de exemplo nos shells para validar a propagação", "owner": "sre", "type": "release", "safe_value": false, "remove_by": "2027-03-31", "spec": "004" },
+        "fiscal.koovela_issuer": { "description": "NF emitida pela Koovela para autônomos (PEN-21; CONST 5)", "owner": "sre", "type": "release", "safe_value": false, "remove_by": "2027-06-30", "spec": "017" },
+        "payments.checkout_kill": { "description": "Interruptor de emergência do checkout", "owner": "sre", "type": "kill_switch", "safe_value": true }
+      }
+    }
+  ]
+}

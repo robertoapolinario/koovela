@@ -1,0 +1,67 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Scheduling — eventos da política (spec 010)
+  version: 1.0.0
+  description: >
+    Outbox do scheduling → scheduling.events. Consumidores: payments (012, execução financeira),
+    notification (011, avisos), scheduling waitlist (014). Consome scheduling.appointment.* (009).
+defaultContentType: application/json
+channels:
+  schedulingEvents:
+    address: scheduling.events
+    messages:
+      policyChanged: { $ref: '#/components/messages/PolicyChanged' }
+      feeChanged: { $ref: '#/components/messages/FeeChanged' }
+      disputeChanged: { $ref: '#/components/messages/DisputeChanged' }
+      slotFreedLate: { $ref: '#/components/messages/SlotFreedLate' }
+operations:
+  publishPolicyEvents:
+    action: send
+    channel: { $ref: '#/channels/schedulingEvents' }
+components:
+  messages:
+    PolicyChanged:
+      name: scheduling.policy.changed.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data: { type: object, properties: { business_id: { type: string, format: uuid }, policy_version_id: { type: string, format: uuid }, valid_from: { type: string, format: date-time } } }
+    FeeChanged:
+      name: scheduling.policy_fee.changed
+      summary: event_type ∈ scheduling.policy_fee.{applied,suspended,reverted,waived}.v1 — a 012 executa (reter, cobrar, devolver)
+      payload:
+        type: object
+        required: [event_id, event_type, tenant_id, data]
+        properties:
+          event_id: { type: string, format: uuid }
+          event_type: { type: string }
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            required: [fee_id, appointment_id, consumer_id, kind, amount, form]
+            properties:
+              fee_id: { type: string, format: uuid }
+              appointment_id: { type: string, format: uuid }
+              consumer_id: { type: string, format: uuid }
+              kind: { type: string, enum: [late_cancel, no_show] }
+              amount: { type: object, properties: { amount_cents: { type: integer }, currency: { type: string } } }
+              form: { type: string, enum: [retain_deposit, retain_deposit_and_charge_card, record_only] }
+              deposit_refund: { type: object, properties: { amount_cents: { type: integer }, currency: { type: string } } }
+              reason_code: { type: [string, 'null'] }
+    DisputeChanged:
+      name: scheduling.policy_dispute.changed
+      summary: event_type ∈ scheduling.policy_dispute.{opened,accepted,rejected,auto_accepted}.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data: { type: object, properties: { dispute_id: { type: string, format: uuid }, fee_id: { type: [string, 'null'], format: uuid }, appointment_id: { type: string, format: uuid }, kind: { type: string } } }
+    SlotFreedLate:
+      name: scheduling.policy.slot_freed_late.v1
+      summary: Cancelamento tardio libera horário futuro — consumido pela fila de espera e horário ocioso (014)
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data: { type: object, properties: { appointment_id: { type: string, format: uuid }, branch_id: { type: string, format: uuid }, professional_id: { type: string, format: uuid }, start_at: { type: string, format: date-time }, end_at: { type: string, format: date-time } } }

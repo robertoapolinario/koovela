@@ -1,0 +1,52 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela — eventos de colaborador em vários negócios (spec 027)
+  version: 1.0.0
+  description: >
+    Consome scheduling.cross_tenant_conflict.detected.v1 e scheduling.occupancy.* (008), scheduling.appointment.* (009),
+    scheduling.class_session.* (026), workforce.engagement.* e workforce.time_off.* (007).
+    Publica workforce.events (projeção) e comanda bloqueios externos no scheduling de cada tenant.
+defaultContentType: application/json
+channels:
+  workforceEvents:
+    address: workforce.events
+    messages:
+      conflictChanged: { $ref: '#/components/messages/ConflictChanged' }
+      crossBlockCommand: { $ref: '#/components/messages/CrossBlockCommand' }
+operations:
+  publishWorkforceEvents:
+    action: send
+    channel: { $ref: '#/channels/workforceEvents' }
+components:
+  messages:
+    ConflictChanged:
+      name: workforce.pro_conflict.changed
+      summary: >
+        event_type ∈ workforce.pro_conflict.{opened,closed}.v1. Versão para o colaborador (com os dois itens) e versão por tenant
+        (só o próprio appointment_id e a janela), entregues por canais distintos.
+      payload:
+        type: object
+        properties:
+          audience: { type: string, enum: [person, tenant] }
+          person_id: { type: string, format: uuid }
+          tenant_id: { type: [string, 'null'], format: uuid }
+          data:
+            type: object
+            properties:
+              conflict_id: { type: string, format: uuid }
+              appointment_id: { type: [string, 'null'], format: uuid }
+              overlap_from: { type: string, format: date-time }
+              overlap_to: { type: string, format: date-time }
+              closed_by_kind: { type: [string, 'null'] }
+    CrossBlockCommand:
+      name: workforce.cross_block.command.v1
+      summary: Cria, atualiza ou remove external_block no tenant destino (idempotente por source_occupancy_ref)
+      payload:
+        type: object
+        properties:
+          target_tenant_id: { type: string, format: uuid }
+          person_id: { type: string, format: uuid }
+          source_occupancy_ref: { type: string, description: Opaco; não revela o tenant de origem }
+          op: { type: string, enum: [upsert, remove] }
+          starts_at: { type: string, format: date-time }
+          ends_at: { type: string, format: date-time }

@@ -1,0 +1,340 @@
+openapi: 3.1.0
+info:
+  title: Koovela Workforce — equipe, escalas, folgas e comissão
+  version: 1.0.0
+  description: Spec 007. x-koovela-action em toda operação. Dinheiro {amount_cents, currency}; percentuais em pontos-base.
+servers:
+  - url: https://api.koovela.com
+  - url: http://core.internal:8080
+    description: /v1/internal (008, 009, 012, 018)
+paths:
+  /v1/tenant/professionals:
+    get:
+      operationId: listProfessionals
+      x-koovela-action: workforce.read
+      parameters: [ { name: branch_id, in: query, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Colaboradores, vínculos, serviços e estado do recebedor }
+    post:
+      operationId: createProfessional
+      x-koovela-action: workforce.professional.create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [display_name, engagement_kind, start_date]
+              properties:
+                display_name: { type: string }
+                email: { type: string, format: email, description: Opcional — envia convite do app (spec 003) }
+                engagement_kind: { type: string, enum: [clt, pj, commissioned, station_lessee] }
+                start_date: { type: string, format: date }
+                specialties: { type: array, items: { type: string } }
+                council: { type: string }
+                registration_number: { type: string }
+                registration_uf: { type: string }
+      responses:
+        '201': { description: Colaborador e vínculo criados; agendável mesmo sem app }
+  /v1/tenant/professionals/{professional_id}/services:
+    put:
+      operationId: setProfessionalServices
+      x-koovela-action: workforce.professional.services.update
+      parameters: [ { $ref: '#/components/parameters/ProfessionalId' } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [item_kind, item_id]
+                    properties:
+                      item_kind: { type: string, enum: [service, combo] }
+                      item_id: { type: string, format: uuid }
+                      duration_min: { type: [integer, 'null'] }
+                      price: { oneOf: [ { $ref: '#/components/schemas/Money' }, { type: 'null' } ] }
+                      valid_from: { type: string, format: date-time }
+      responses:
+        '200': { description: Lista atualizada; combo exige todas as etapas }
+  /v1/tenant/professionals/{professional_id}/schedules:
+    post:
+      operationId: createSchedule
+      x-koovela-action: workforce.schedule.update
+      parameters: [ { $ref: '#/components/parameters/ProfessionalId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [branch_id, valid_from, intervals]
+              properties:
+                branch_id: { type: string, format: uuid }
+                valid_from: { type: string, format: date }
+                valid_to: { type: [string, 'null'], format: date }
+                intervals:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      weekday: { type: integer, minimum: 1, maximum: 7 }
+                      start: { type: string }
+                      end: { type: string }
+                dry_run: { type: boolean, description: Lista agendamentos afetados sem salvar }
+      responses:
+        '201':
+          description: Escala salva (aviso se passar do horário da filial)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  outside_opening_hours: { type: boolean }
+                  affected_appointments: { type: [integer, 'null'] }
+        '409': { description: workforce.schedule_overlap (mesmo horário em outra filial) }
+  /v1/tenant/time-off:
+    post:
+      operationId: createTimeOff
+      x-koovela-action: workforce.time_off.create
+      summary: Pedido do Colaborador (requested) ou lançamento direto do Gerente/Proprietário (direct)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [professional_id, starts_at, ends_at, kind]
+              properties:
+                professional_id: { type: string, format: uuid }
+                starts_at: { type: string, format: date-time }
+                ends_at: { type: string, format: date-time }
+                all_day: { type: boolean }
+                kind: { type: string, enum: [vacation, day_off, absence, block, other] }
+                reason: { type: string, maxLength: 200 }
+      responses:
+        '201': { description: Criada; lista os agendamentos afetados }
+  /v1/tenant/time-off/{time_off_id}/decision:
+    post:
+      operationId: decideTimeOff
+      x-koovela-action: workforce.time_off.decide
+      parameters: [ { name: time_off_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [approve, reject] }
+                reason: { type: string }
+      responses:
+        '200': { description: Decidida; nada é cancelado automaticamente }
+  /v1/tenant/shift-swaps:
+    post:
+      operationId: proposeSwap
+      x-koovela-action: workforce.swap.propose
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [peer_id, date_a, date_b]
+              properties:
+                peer_id: { type: string, format: uuid }
+                date_a: { type: string, format: date }
+                date_b: { type: string, format: date }
+      responses:
+        '201': { description: Proposta enviada ao colega }
+  /v1/tenant/shift-swaps/{swap_id}/{step}:
+    post:
+      operationId: progressSwap
+      x-koovela-action: workforce.swap.progress
+      parameters:
+        - { name: swap_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: step, in: path, required: true, schema: { type: string, enum: [accept, approve, reject, cancel] } }
+      responses:
+        '200': { description: Avança; aprovar exige agendamentos dos dois dias resolvidos }
+        '409': { description: workforce.swap_unresolved_appointments }
+  /v1/tenant/commission/settings:
+    put:
+      operationId: setCommissionSettings
+      x-koovela-action: workforce.commission.settings.update
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [business_id, base]
+              properties:
+                business_id: { type: string, format: uuid }
+                base: { type: string, enum: [full, discounted] }
+                deduct_payment_fees: { type: boolean, default: false }
+                valid_from: { type: string, format: date-time }
+      responses:
+        '200': { description: Nova versão (auditada) }
+  /v1/tenant/commission/rules:
+    post:
+      operationId: upsertCommissionRule
+      x-koovela-action: workforce.commission.rule.update
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [business_id, level]
+              properties:
+                business_id: { type: string, format: uuid }
+                level: { type: string, enum: [business, professional, service, professional_service] }
+                professional_id: { type: string, format: uuid }
+                service_id: { type: string, format: uuid }
+                rate_bps: { type: integer, minimum: 0, maximum: 10000 }
+                owner_share_bps: { type: integer, minimum: 0, maximum: 10000, description: Só arrendatário }
+                floor: { $ref: '#/components/schemas/Money' }
+                cap: { $ref: '#/components/schemas/Money' }
+                valid_from: { type: string, format: date-time }
+      responses:
+        '200': { description: Nova versão da regra (auditada) }
+  /v1/tenant/commission/simulate:
+    post:
+      operationId: simulateCommission
+      x-koovela-action: workforce.commission.simulate
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CommissionQuoteInput' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommissionQuote' }
+          description: Mesmo cálculo do contrato interno
+  /v1/pro/commissions:
+    get:
+      operationId: getMyCommissions
+      x-koovela-action: workforce.commission.self.read
+      parameters:
+        - { name: period, in: query, schema: { type: string, enum: [week, month] } }
+        - { name: date, in: query, schema: { type: string, format: date } }
+      responses:
+        '200': { description: Total previsto e lançamentos (ajustes como linhas separadas) — só os próprios }
+  /v1/pro/portfolio:
+    post:
+      operationId: uploadPortfolioPhoto
+      x-koovela-action: workforce.portfolio.upload
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, consent]
+              properties:
+                file: { type: string, format: binary }
+                consent: { type: boolean, const: true, description: Declaração de autorização de uso de imagem }
+      responses:
+        '201': { description: Metadados removidos; pendente de aprovação se o negócio exigir }
+  /v1/tenant/professionals/{professional_id}/end:
+    post:
+      operationId: endEngagement
+      x-koovela-action: workforce.engagement.end
+      parameters: [ { $ref: '#/components/parameters/ProfessionalId' } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [end_date]
+              properties:
+                end_date: { type: string, format: date }
+      responses:
+        '200': { description: Encerrado na data (papel removido, sai da página pública, histórico preservado) }
+        '409': { description: workforce.unresolved_future_appointments }
+  /v1/public/businesses/{slug}/professionals:
+    get:
+      operationId: listPublicProfessionals
+      x-koovela-action: public.professionals.read
+      security: []
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: branch_id, in: query, schema: { type: string, format: uuid } }
+        - { name: service_id, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Nome, foto, especialidades, registro (saúde) e portfólio aprovado — nunca vínculo nem comissão }
+  /v1/internal/workforce/professionals/{professional_id}/work-intervals:
+    get:
+      operationId: getWorkIntervals
+      x-koovela-action: internal.workforce.read
+      parameters:
+        - { $ref: '#/components/parameters/ProfessionalId' }
+        - { name: branch_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: Intervalos de trabalho em UTC (escala ∩ horário da filial − folgas − bloqueios)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: { type: string }
+                  intervals:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        start: { type: string, format: date-time }
+                        end: { type: string, format: date-time }
+  /v1/internal/workforce/commission/quote:
+    post:
+      operationId: quoteCommission
+      x-koovela-action: internal.workforce.commission.quote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CommissionQuoteInput' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommissionQuote' }
+          description: Cálculo puro e determinístico
+components:
+  parameters:
+    ProfessionalId: { name: professional_id, in: path, required: true, schema: { type: string, format: uuid } }
+  schemas:
+    Money:
+      type: object
+      required: [amount_cents, currency]
+      properties:
+        amount_cents: { type: integer, minimum: 0 }
+        currency: { type: string, const: BRL }
+    CommissionQuoteInput:
+      type: object
+      required: [professional_id, service_id, full_price, discount]
+      properties:
+        professional_id: { type: string, format: uuid }
+        service_id: { type: string, format: uuid }
+        at: { type: string, format: date-time, description: Escolhe a versão vigente }
+        rule_version_id: { type: string, format: uuid, description: Versão congelada (ignora `at`) }
+        settings_version_id: { type: string, format: uuid }
+        full_price: { $ref: '#/components/schemas/Money' }
+        discount: { $ref: '#/components/schemas/Money', description: Para combo, o rateio da etapa (006) }
+        payment_fees: { $ref: '#/components/schemas/Money' }
+        package_session: { type: object, properties: { total: { $ref: '#/components/schemas/Money' }, sessions: { type: integer }, index: { type: integer } } }
+    CommissionQuote:
+      type: object
+      required: [base, commission, owner_share, rule_version_id, settings_version_id, applied_level]
+      properties:
+        base: { $ref: '#/components/schemas/Money' }
+        commission: { $ref: '#/components/schemas/Money' }
+        owner_share: { $ref: '#/components/schemas/Money' }
+        rule_version_id: { type: string, format: uuid }
+        settings_version_id: { type: string, format: uuid }
+        applied_level: { type: string, enum: [business, professional, service, professional_service] }
+        floor_applied: { type: boolean }
+        cap_applied: { type: boolean }

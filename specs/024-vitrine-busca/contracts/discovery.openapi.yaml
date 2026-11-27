@@ -1,0 +1,161 @@
+openapi: 3.1.0
+info:
+  title: Koovela Discovery — vitrine e busca
+  version: 1.0.0
+  description: >
+    Spec 024. x-koovela-action em toda operação. Respostas nunca têm preço nem avaliação de negócios de saúde.
+    A coordenada do consumidor não é registrada.
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/public/discovery/search:
+    get:
+      operationId: search
+      x-koovela-action: public.discovery.search
+      security: []
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - { name: lat, in: query, schema: { type: number }, description: Só com "perto de mim"; arredondada; não registrada }
+        - { name: lng, in: query, schema: { type: number } }
+        - { name: place, in: query, schema: { type: string }, description: Bairro, cidade ou endereço }
+        - { name: bbox, in: query, schema: { type: string }, description: Área visível do mapa }
+        - { name: category, in: query, schema: { type: string } }
+        - { name: available, in: query, schema: { type: string, enum: [today, tomorrow] } }
+        - { name: price_max_cents, in: query, schema: { type: integer } }
+        - { name: rating_min_x10, in: query, schema: { type: integer } }
+        - { name: distance_max_m, in: query, schema: { type: integer } }
+        - { name: online_payment, in: query, schema: { type: boolean } }
+        - { name: accessibility, in: query, schema: { type: boolean } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results: { type: array, items: { $ref: '#/components/schemas/Result' } }
+                  alternatives: { type: array, items: { type: object, properties: { kind: { type: string, enum: [similar_category, wider_radius, nearest_outside_region] }, label: { type: string } } } }
+                  region_open: { type: boolean }
+                  ranking_explanation: { type: string }
+                  ranking_version: { type: string }
+                  next_cursor: { type: [string, 'null'] }
+          description: Resultados orgânicos; nunca vazio sem alternativas
+  /v1/public/discovery/suggest:
+    get:
+      operationId: suggest
+      x-koovela-action: public.discovery.suggest
+      security: []
+      parameters: [ { name: q, in: query, required: true, schema: { type: string, maxLength: 60 } } ]
+      responses:
+        '200': { description: Sugestões (serviços, categorias, estabelecimentos); termos bloqueados não sugerem }
+  /v1/public/discovery/home:
+    get:
+      operationId: home
+      x-koovela-action: public.discovery.home
+      security: []
+      responses:
+        '200': { description: Verticais e categorias na ordem da Gestão }
+  /v1/public/discovery/listings/{branch_id}/report:
+    post:
+      operationId: reportListing
+      x-koovela-action: consumer.discovery.report
+      parameters: [ { name: branch_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [reason], properties: { reason: { type: string }, note: { type: string, maxLength: 500 } } }
+      responses:
+        '201': { description: Denúncia na fila de moderação }
+  /v1/consumer/discovery/region-alerts:
+    post:
+      operationId: subscribeRegionAlert
+      x-koovela-action: consumer.discovery.region_alert
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [place], properties: { place: { type: string } } }
+      responses:
+        '201': { description: Aviso quando a região abrir (revogável) }
+  /v1/consumer/discovery/preferences:
+    put:
+      operationId: setDiscoveryPreferences
+      x-koovela-action: consumer.discovery.preferences
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { remember_searches: { type: boolean, default: false } } }
+      responses:
+        '200': { description: Salvo; desligar apaga o histórico }
+  /v1/tenant/discovery/participation:
+    get:
+      operationId: getParticipation
+      x-koovela-action: discovery.participation.read
+      responses:
+        '200': { description: Estado, requisitos faltando, prévia do cartão, desempenho mensal }
+    put:
+      operationId: setParticipation
+      x-koovela-action: discovery.participation.manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [action], properties: { action: { type: string, enum: [join, leave] }, branch_ids: { type: array, items: { type: string, format: uuid } } } }
+      responses:
+        '200': { description: Só Proprietário; auditado; saída reflete em ≤ 15 min }
+        '409': { description: discovery.requirements_missing, discovery.region_closed }
+  /v1/admin/discovery/regions:
+    get:
+      operationId: listRegions
+      x-koovela-action: admin.discovery.read
+      responses:
+        '200': { description: Participantes por categoria e base mínima por região }
+  /v1/admin/discovery/regions/{region_id}/{action}:
+    post:
+      operationId: regionAction
+      x-koovela-action: admin.discovery.region
+      parameters:
+        - { name: region_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [open, close] } }
+      responses:
+        '200': { description: Decidido (auditado); abrir dispara convites }
+  /v1/admin/discovery/ranking:
+    put:
+      operationId: setRankingVersion
+      x-koovela-action: admin.discovery.ranking
+      responses:
+        '200': { description: Nova versão de critérios, pesos e mínimos (auditada) }
+  /v1/admin/discovery/taxonomy:
+    put:
+      operationId: setTaxonomy
+      x-koovela-action: admin.discovery.taxonomy
+      responses:
+        '200': { description: Verticais, categorias, sinônimos, ordem da home, slugs reservados }
+  /v1/admin/discovery/listings/{branch_id}/remove:
+    post:
+      operationId: removeListing
+      x-koovela-action: admin.discovery.moderate
+      parameters: [ { name: branch_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [reason], properties: { reason: { type: string } } }
+      responses:
+        '200': { description: Retirado com aviso ao negócio e trilha }
+components:
+  schemas:
+    Result:
+      type: object
+      required: [branch_id, slug, name, category]
+      properties:
+        branch_id: { type: string, format: uuid }
+        slug: { type: string }
+        name: { type: string }
+        category: { type: string }
+        distance_m: { type: [integer, 'null'] }
+        geo: { type: object, properties: { lat: { type: number }, lng: { type: number }, precision: { type: string, enum: [exact, approximate] } } }
+        rating: { type: [object, 'null'], properties: { avg_x10: { type: integer }, count: { type: integer } }, description: null em saúde ou sem avaliações públicas }
+        price_from_cents: { type: [integer, 'null'], description: null em saúde }
+        next_free_slot_at: { type: [string, 'null'], format: date-time }
+        cover_url: { type: string }
+        is_new: { type: boolean }

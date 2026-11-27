@@ -1,0 +1,213 @@
+openapi: 3.1.0
+info:
+  title: Koovela Tenancy — provisionamento, estado e migração
+  version: 1.0.0
+  description: >
+    Spec 002. `/v1/internal/tenancy` só é chamado por serviços (credencial de serviço,
+    nunca pela borda pública). `/v1/admin/tenancy` é a API da tela G03 do back-office;
+    até a spec 003 exige o JWT do Cloudflare Access de membro do grupo SRE.
+    Erros: Problem Details (../../001-fundacao-plataforma/contracts/problem-details.schema.json).
+servers:
+  - url: http://core.internal:8080
+    description: Rede interna dos hosts; o gateway responde 404 a /v1/internal vindo da borda
+  - url: https://api.koovela.com
+    description: Só /v1/admin/tenancy (atrás do Cloudflare Access)
+paths:
+  /v1/internal/tenancy/tenants:
+    post:
+      operationId: provisionTenant
+      summary: Pede o provisionamento de um tenant (idempotente)
+      tags: [internal]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [tenant_id]
+              properties:
+                tenant_id: { type: string, format: uuid, description: UUIDv7 gerado pelo chamador (spec 005) }
+                synthetic: { type: boolean, default: false }
+      responses:
+        '202':
+          description: Aceito (ou já existente com a mesma chave)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProvisioningRequest' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /v1/internal/tenancy/tenants/{tenant_id}:
+    get:
+      operationId: getTenantStatus
+      tags: [internal]
+      parameters: [ { $ref: '#/components/parameters/TenantId' } ]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+          description: Estado e versões
+        '404': { $ref: '#/components/responses/Problem' }
+  /v1/internal/tenancy/tenants/{tenant_id}/transitions:
+    post:
+      operationId: transitionTenant
+      summary: Suspende, reativa ou arquiva (usado por 019, 021 e 022)
+      tags: [internal]
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TransitionCommand' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+          description: Transição aplicada
+        '409': { $ref: '#/components/responses/Problem' }
+  /v1/admin/tenancy/tenants:
+    get:
+      operationId: listTenantsForOps
+      summary: Lista da tela G03 (filtros por estado e versão, paginação por cursor)
+      tags: [admin]
+      parameters:
+        - { name: state, in: query, schema: { $ref: '#/components/schemas/TenantState' } }
+        - { name: domain, in: query, schema: { type: string } }
+        - { name: version_below, in: query, schema: { type: integer } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        '200':
+          description: Página de tenants
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Tenant' } }
+                  next_cursor: { type: [string, 'null'] }
+  /v1/admin/tenancy/actions:
+    post:
+      operationId: runOpsAction
+      summary: Provisionar, reprocessar, reverter, suspender, reativar ou arquivar (com justificativa)
+      tags: [admin]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [action, justification]
+              properties:
+                action: { type: string, enum: [provision, reprocess, rollback, suspend, reactivate, archive] }
+                tenant_id: { type: string, format: uuid }
+                run_id: { type: string, format: uuid, description: Para reprocess e rollback }
+                justification: { type: string, minLength: 10, maxLength: 500 }
+      responses:
+        '202': { description: Ação aceita e registrada em ops_action_log }
+        '409': { $ref: '#/components/responses/Problem' }
+  /v1/admin/tenancy/migration-runs:
+    get:
+      operationId: listMigrationRuns
+      tags: [admin]
+      responses:
+        '200':
+          description: Execuções recentes e a em andamento
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/MigrationRun' } }
+  /v1/admin/tenancy/migration-runs/{run_id}/failures:
+    get:
+      operationId: listMigrationFailures
+      tags: [admin]
+      parameters: [ { name: run_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200':
+          description: Falhas por tenant, sem dado de negócio
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [tenant_id, domain, version, error_code]
+                      properties:
+                        tenant_id: { type: string, format: uuid }
+                        domain: { type: string }
+                        version: { type: integer }
+                        error_code: { type: string }
+                        error_detail: { type: string }
+components:
+  parameters:
+    TenantId: { name: tenant_id, in: path, required: true, schema: { type: string, format: uuid } }
+    IdempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
+  responses:
+    Problem:
+      description: Erro (Problem Details). Códigos — tenancy.transition_not_allowed, tenancy.provisioning_in_progress, tenancy.migration_run_in_progress, tenancy.contract_rollback_forbidden, tenancy.tenant_not_found
+      content:
+        application/problem+json:
+          schema: { $ref: '../../001-fundacao-plataforma/contracts/problem-details.schema.json' }
+  schemas:
+    TenantState:
+      type: string
+      enum: [provisioning, active, migration_pending, suspended, archived, provisioning_failed]
+    Tenant:
+      type: object
+      additionalProperties: false
+      required: [tenant_id, state, domain_versions, created_at]
+      properties:
+        tenant_id: { type: string, format: uuid }
+        state: { $ref: '#/components/schemas/TenantState' }
+        state_reason: { type: [string, 'null'] }
+        synthetic: { type: boolean }
+        domain_versions:
+          type: object
+          additionalProperties: { type: integer }
+        pending_failures: { type: integer, minimum: 0 }
+        created_at: { type: string, format: date-time }
+        last_migrated_at: { type: [string, 'null'], format: date-time }
+    ProvisioningRequest:
+      type: object
+      required: [request_id, tenant_id, status]
+      properties:
+        request_id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        status: { type: string, enum: [pending, running, succeeded, failed] }
+        attempts: { type: integer }
+    TransitionCommand:
+      type: object
+      additionalProperties: false
+      required: [to_state, reason]
+      properties:
+        to_state: { type: string, enum: [active, suspended, archived] }
+        reason: { type: string, maxLength: 500 }
+        reason_code: { type: string, description: 'ex.: billing_overdue, sre_request, privacy_request' }
+    MigrationRun:
+      type: object
+      required: [run_id, kind, status, succeeded, failed, pending, started_at]
+      properties:
+        run_id: { type: string, format: uuid }
+        kind: { type: string, enum: [apply, reprocess, rollback] }
+        status: { type: string, enum: [running, canary_failed, completed, completed_with_failures, failed] }
+        target: { type: object, additionalProperties: { type: integer } }
+        canary_size: { type: integer }
+        succeeded: { type: integer }
+        failed: { type: integer }
+        pending: { type: integer }
+        eta_seconds: { type: [integer, 'null'] }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }

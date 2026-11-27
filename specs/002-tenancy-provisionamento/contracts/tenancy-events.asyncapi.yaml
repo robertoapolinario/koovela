@@ -1,0 +1,99 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Tenancy — eventos (spec 002)
+  version: 1.0.0
+  description: >
+    Publicados pelo outbox do `tenancy` no exchange `tenancy.events` (tópico), com DLQ por
+    consumidor. Envelope da spec 001 (platform-events.asyncapi.yaml#/components/schemas/Envelope).
+    Sem PII. `tenant_id` sempre preenchido, exceto em migration_run.*.
+defaultContentType: application/json
+channels:
+  tenancyEvents:
+    address: tenancy.events
+    messages:
+      provisioningRequested: { $ref: '#/components/messages/TenantLifecycle' }
+      provisioned: { $ref: '#/components/messages/TenantLifecycle' }
+      provisioningFailed: { $ref: '#/components/messages/TenantLifecycle' }
+      suspended: { $ref: '#/components/messages/TenantLifecycle' }
+      reactivated: { $ref: '#/components/messages/TenantLifecycle' }
+      archived: { $ref: '#/components/messages/TenantLifecycle' }
+      migrationFailed: { $ref: '#/components/messages/TenantMigrationFailed' }
+      restored: { $ref: '#/components/messages/TenantLifecycle' }
+      runStarted: { $ref: '#/components/messages/MigrationRunChanged' }
+      runCompleted: { $ref: '#/components/messages/MigrationRunChanged' }
+      runFailed: { $ref: '#/components/messages/MigrationRunChanged' }
+operations:
+  publishTenancyEvents:
+    action: send
+    channel: { $ref: '#/channels/tenancyEvents' }
+components:
+  messages:
+    TenantLifecycle:
+      name: tenancy.tenant.lifecycle
+      summary: >
+        event_type ∈ tenancy.tenant.{provisioning_requested,provisioned,provisioning_failed,
+        suspended,reactivated,archived,restored}.v1
+      payload:
+        type: object
+        required: [event_id, event_type, version, tenant_id, occurred_at, actor, correlation_id, data]
+        properties:
+          event_id: { type: string, format: uuid }
+          event_type: { type: string }
+          version: { const: 1 }
+          tenant_id: { type: string, format: uuid }
+          occurred_at: { type: string, format: date-time }
+          actor:
+            type: object
+            properties:
+              type: { type: string, enum: [system, sre, service] }
+              id: { type: string }
+          correlation_id: { type: string, format: uuid }
+          data:
+            type: object
+            required: [state]
+            properties:
+              from_state: { type: [string, 'null'] }
+              state: { type: string, enum: [provisioning, active, migration_pending, suspended, archived, provisioning_failed] }
+              reason_code: { type: [string, 'null'] }
+              domain_versions: { type: object, additionalProperties: { type: integer } }
+    TenantMigrationFailed:
+      name: tenancy.tenant.migration_failed.v1
+      payload:
+        type: object
+        required: [event_id, event_type, tenant_id, occurred_at, correlation_id, data]
+        properties:
+          event_id: { type: string, format: uuid }
+          event_type: { const: tenancy.tenant.migration_failed.v1 }
+          tenant_id: { type: string, format: uuid }
+          occurred_at: { type: string, format: date-time }
+          correlation_id: { type: string, format: uuid }
+          data:
+            type: object
+            required: [run_id, domain, version, error_code]
+            properties:
+              run_id: { type: string, format: uuid }
+              domain: { type: string }
+              version: { type: integer }
+              error_code: { type: string }
+    MigrationRunChanged:
+      name: tenancy.migration_run.changed
+      summary: event_type ∈ tenancy.migration_run.{started,completed,failed}.v1 (tenant_id nulo)
+      payload:
+        type: object
+        required: [event_id, event_type, occurred_at, correlation_id, data]
+        properties:
+          event_id: { type: string, format: uuid }
+          event_type: { type: string }
+          tenant_id: { type: 'null' }
+          occurred_at: { type: string, format: date-time }
+          correlation_id: { type: string, format: uuid }
+          data:
+            type: object
+            required: [run_id, kind, status]
+            properties:
+              run_id: { type: string, format: uuid }
+              kind: { type: string, enum: [apply, reprocess, rollback] }
+              status: { type: string }
+              succeeded: { type: integer }
+              failed: { type: integer }
+              pending: { type: integer }

@@ -1,0 +1,176 @@
+openapi: 3.1.0
+info:
+  title: Koovela Scheduling — política de cancelamento e no-show
+  version: 1.0.0
+  description: Spec 010. x-koovela-action em toda operação. Dinheiro {amount_cents, currency}.
+servers:
+  - url: https://api.koovela.com
+  - url: http://core.internal:8080
+paths:
+  /v1/tenant/policy:
+    get:
+      operationId: getPolicy
+      x-koovela-action: policy.read
+      parameters: [ { name: business_id, in: query, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Versão vigente, agendadas e formas de multa permitidas pelo back-office }
+    put:
+      operationId: savePolicy
+      x-koovela-action: policy.update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PolicyInput' }
+      responses:
+        '200': { description: Nova versão (auditada) }
+  /v1/tenant/policy/preview:
+    post:
+      operationId: previewPolicy
+      x-koovela-action: policy.read
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                policy: { $ref: '#/components/schemas/PolicyInput' }
+                example_price: { $ref: '#/components/schemas/Money' }
+      responses:
+        '200': { description: Texto ao consumidor com exemplo em reais }
+  /v1/internal/scheduling/policy/evaluate:
+    post:
+      operationId: evaluatePolicy
+      x-koovela-action: internal.scheduling.policy.evaluate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [appointment_id, at]
+              properties:
+                appointment_id: { type: string, format: uuid }
+                at: { type: string, format: date-time }
+                action: { type: string, enum: [cancel, reschedule, no_show] }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Evaluation' }
+          description: O que é permitido e a consequência (009 e telas do consumidor)
+  /v1/tenant/fees/{fee_id}/waive:
+    post:
+      operationId: waiveFee
+      x-koovela-action: policy.fee.waive
+      parameters: [ { name: fee_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 5 }
+      responses:
+        '200': { description: Abonada (auditada); a 012 reverte o que foi cobrado }
+  /v1/tenant/disputes:
+    get:
+      operationId: listDisputes
+      x-koovela-action: policy.dispute.read
+      parameters: [ { name: branch_id, in: query, schema: { type: string, format: uuid } }, { name: state, in: query, schema: { type: string } } ]
+      responses:
+        '200': { description: Fila de contestações da filial }
+  /v1/tenant/disputes/{dispute_id}/decide:
+    post:
+      operationId: decideDispute
+      x-koovela-action: policy.dispute.decide
+      parameters: [ { name: dispute_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, response]
+              properties:
+                decision: { type: string, enum: [accept, reject] }
+                response: { type: string, maxLength: 500 }
+      responses:
+        '200': { description: Decidida; aceite reverte multa e contador }
+  /v1/consumer/appointments/{appointment_id}/disputes:
+    post:
+      operationId: openDispute
+      x-koovela-action: consumer.policy.dispute.open
+      parameters: [ { name: appointment_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, text]
+              properties:
+                kind: { type: string, enum: [fee, not_served] }
+                text: { type: string, maxLength: 500 }
+      responses:
+        '201': { description: Aberta (fee em até 7 dias; not_served em até 48 h); multa não cobrada fica suspensa }
+        '409': { description: policy.dispute_window_closed }
+components:
+  schemas:
+    Money:
+      type: object
+      required: [amount_cents, currency]
+      properties:
+        amount_cents: { type: integer, minimum: 0 }
+        currency: { type: string, const: BRL }
+    PolicyInput:
+      type: object
+      required: [business_id, free_cancel_hours, no_show_fee_pct, grace_minutes, fee_form]
+      properties:
+        business_id: { type: string, format: uuid }
+        free_cancel_hours: { type: integer, minimum: 0, maximum: 168 }
+        free_reschedule_hours: { type: integer, minimum: 0, maximum: 168 }
+        reschedule_limit: { type: [integer, 'null'], minimum: 0, maximum: 5 }
+        late_cancel_fee_pct: { type: integer, minimum: 0, maximum: 100 }
+        no_show_fee_pct: { type: integer, minimum: 0, maximum: 100 }
+        grace_minutes: { type: integer, minimum: 5, maximum: 60 }
+        block_app_cancel_outside_window: { type: boolean }
+        fee_form: { type: string, enum: [retain_deposit, retain_deposit_and_charge_card, record_only] }
+        deposit: { type: object, properties: { kind: { type: string, enum: [percent, fixed] }, value: { type: integer }, payment_minutes: { type: integer, minimum: 5, maximum: 30 } } }
+        service_deposit_modes:
+          type: array
+          items:
+            type: object
+            properties:
+              service_id: { type: string, format: uuid }
+              mode: { type: string, enum: [none, all, new_or_recent_no_show] }
+        require_deposit_after_no_shows: { type: [integer, 'null'], minimum: 1, maximum: 5 }
+        exceptions:
+          type: array
+          items:
+            type: object
+            properties:
+              target_kind: { type: string, enum: [service, consumer] }
+              target_id: { type: string, format: uuid }
+              scope: { type: string, enum: [fee, deposit, both] }
+        valid_from: { type: string, format: date-time }
+    Evaluation:
+      type: object
+      required: [can_cancel, can_reschedule, consequence]
+      properties:
+        policy_version_id: { type: string, format: uuid }
+        can_cancel: { type: boolean }
+        can_reschedule: { type: boolean }
+        reschedules_left: { type: [integer, 'null'] }
+        free_until: { type: [string, 'null'], format: date-time }
+        deposit_required: { type: boolean }
+        deposit: { $ref: '#/components/schemas/Money' }
+        consequence:
+          type: object
+          properties:
+            kind: { type: string, enum: [free, late_fee, no_show_fee, deposit_retained, session_consumed, booking_fee_retained] }
+            fee: { $ref: '#/components/schemas/Money' }
+            retained: { $ref: '#/components/schemas/Money' }
+            refunded: { $ref: '#/components/schemas/Money' }
+            form: { type: string }
+        display_text: { type: string }

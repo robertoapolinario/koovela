@@ -1,0 +1,151 @@
+openapi: 3.1.0
+info:
+  title: Koovela Scheduling — fila de espera e horário ocioso
+  version: 1.0.0
+  description: Spec 014. x-koovela-action em toda operação.
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/consumer/businesses/{slug}/waitlist:
+    post:
+      operationId: joinWaitlist
+      x-koovela-action: consumer.waitlist.join
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [branch_id, item_kind, item_id, period_from, period_to]
+              properties:
+                branch_id: { type: string, format: uuid }
+                item_kind: { type: string, enum: [service, combo] }
+                item_id: { type: string, format: uuid }
+                professional_id: { type: [string, 'null'], format: uuid }
+                period_from: { type: string, format: date }
+                period_to: { type: string, format: date, description: ≤ 30 dias }
+                day_window: { type: object, properties: { from: { type: string }, to: { type: string } } }
+      responses:
+        '201': { description: Na fila (posição informada) }
+        '409': { description: waitlist.limit_reached }
+  /v1/consumer/waitlist:
+    get:
+      operationId: listMyWaitlist
+      x-koovela-action: consumer.waitlist.list
+      responses:
+        '200': { description: Entradas e ofertas ativas }
+  /v1/consumer/waitlist/{entry_id}:
+    delete:
+      operationId: leaveWaitlist
+      x-koovela-action: consumer.waitlist.leave
+      parameters: [ { name: entry_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '204': { description: Saiu da fila }
+  /v1/consumer/offers/{offer_id}/accept:
+    post:
+      operationId: acceptOffer
+      x-koovela-action: consumer.offer.accept
+      parameters:
+        - { name: offer_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      responses:
+        '201': { description: Hold criado (008) e agendamento em RASCUNHO (009) com origem waitlist ou idle_offer }
+        '409': { description: offer.slot_already_filled (continua na fila) }
+        '410': { description: offer.expired }
+  /v1/consumer/offer-optins:
+    put:
+      operationId: setOfferOptins
+      x-koovela-action: consumer.offer.optin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [business_id, channels]
+              properties:
+                business_id: { type: string, format: uuid }
+                channels: { type: array, items: { type: string, enum: [push, sms, email] } }
+                text_version: { type: string }
+      responses:
+        '200': { description: Opt-in registrado por estabelecimento e canal }
+  /v1/tenant/waitlist:
+    get:
+      operationId: listBranchWaitlist
+      x-koovela-action: scheduling.waitlist.read
+      parameters:
+        - { name: branch_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: date, in: query, schema: { type: string, format: date } }
+      responses:
+        '200': { description: Horários livres com entradas compatíveis por ordem (P07) }
+  /v1/tenant/waitlist/{entry_id}/book:
+    post:
+      operationId: bookFromWaitlist
+      x-koovela-action: scheduling.waitlist.book
+      parameters:
+        - { name: entry_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [start]
+              properties:
+                start: { type: string, format: date-time }
+                professional_id: { type: string, format: uuid }
+      responses:
+        '201': { description: Encaixe manual (origem waitlist); entrada encerrada; oferta automática bloqueada para o horário }
+  /v1/tenant/waitlist/settings:
+    put:
+      operationId: setWaitlistSettings
+      x-koovela-action: scheduling.waitlist.settings
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { business_id: { type: string, format: uuid }, auto_offer_enabled: { type: boolean } } }
+      responses:
+        '200': { description: Salvo }
+  /v1/tenant/idle-rule:
+    put:
+      operationId: saveIdleRule
+      x-koovela-action: scheduling.idle_rule.update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [business_id, enabled]
+              properties:
+                business_id: { type: string, format: uuid }
+                enabled: { type: boolean }
+                service_ids: { type: array, items: { type: string, format: uuid } }
+                professional_ids: { type: array, items: { type: string, format: uuid } }
+                weekdays: { type: array, items: { type: integer, minimum: 1, maximum: 7 } }
+                time_windows: { type: array, items: { type: object, properties: { from: { type: string }, to: { type: string } } } }
+                lead_min_hours: { type: integer }
+                lead_max_hours: { type: integer }
+                discount_bps: { type: integer, minimum: 0, maximum: 10000 }
+                eligible_since_days: { type: integer }
+                max_offers_per_consumer_week: { type: integer }
+      responses:
+        '200': { description: Nova versão (validada contra os limites do back-office) }
+        '422': { description: idle.exceeds_platform_limits, idle.not_allowed_in_health }
+  /v1/tenant/idle-rule/results:
+    get:
+      operationId: idleResults
+      x-koovela-action: scheduling.idle_rule.read
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200': { description: Ofertas enviadas, aceitas, concluídos, receita, descontos e taxa }
+  /v1/admin/idle-limits:
+    put:
+      operationId: setIdlePlatformLimits
+      x-koovela-action: scheduling.idle_limits.update
+      responses:
+        '200': { description: Nova versão dos limites da plataforma (auditada) }

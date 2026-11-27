@@ -1,0 +1,183 @@
+openapi: 3.1.0
+info:
+  title: Koovela Payments — fechamento e repasses
+  version: 1.0.0
+  description: Spec 018. x-koovela-action em toda operação; Idempotency-Key em ajustes e repasses.
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/tenant/settlement/settings:
+    put:
+      operationId: setSettlementSettings
+      x-koovela-action: settlement.configure
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                period_kind: { type: string, enum: [weekly, biweekly, monthly] }
+                dispute_window_days: { type: integer, minimum: 1, maximum: 10 }
+                approval_delegated_to_branch_manager: { type: boolean }
+      responses:
+        '200': { description: Vale do próximo período }
+  /v1/tenant/settlement/periods/{period_id}:
+    get:
+      operationId: getPeriodSummary
+      x-koovela-action: settlement.read
+      parameters:
+        - { name: period_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: branch_id, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Resumo por filial e total + lista de verificação (P21) }
+  /v1/tenant/settlement/periods/{period_id}/close:
+    post:
+      operationId: closePeriod
+      x-koovela-action: settlement.close
+      parameters: [ { name: period_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Concluído (data e ator); pendências passam ao próximo }
+  /v1/tenant/settlement/periods/{period_id}/export:
+    get:
+      operationId: exportPeriod
+      x-koovela-action: settlement.export
+      parameters: [ { name: period_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Planilha + exportação fiscal do período (zip) }
+  /v1/tenant/settlement/statements:
+    get:
+      operationId: listStatements
+      x-koovela-action: settlement.read
+      parameters:
+        - { name: period_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: branch_id, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Fechamentos por colaborador com estado, total, repassado, a pagar }
+  /v1/tenant/settlement/statements/{statement_id}:
+    get:
+      operationId: getStatement
+      x-koovela-action: settlement.read
+      parameters: [ { name: statement_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Linhas, pendentes, ajustes, contestações, repasses }
+  /v1/tenant/settlement/statements/{statement_id}/adjustments:
+    post:
+      operationId: addAdjustment
+      x-koovela-action: settlement.adjust
+      parameters:
+        - { name: statement_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, amount_cents, reason]
+              properties:
+                kind: { type: string, enum: [bonus, deduction, advance, chair_fee, other] }
+                amount_cents: { type: integer }
+                reason: { type: string, minLength: 5 }
+      responses:
+        '201': { description: Ajuste lançado (auditado) }
+        '409': { description: settlement.statement_approved }
+  /v1/tenant/settlement/statements/{statement_id}/disputes/{dispute_id}/answer:
+    post:
+      operationId: answerDispute
+      x-koovela-action: settlement.dispute.answer
+      parameters:
+        - { name: statement_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: dispute_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [answer]
+              properties:
+                answer: { type: string }
+                adjustment: { type: object, properties: { amount_cents: { type: integer }, kind: { type: string } } }
+      responses:
+        '200': { description: Respondida; colaborador avisado }
+  /v1/tenant/settlement/statements/{statement_id}/approve:
+    post:
+      operationId: approveStatement
+      x-koovela-action: settlement.approve
+      parameters: [ { name: statement_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { note: { type: string, description: Obrigatória com contestação aberta } } }
+      responses:
+        '200': { description: Aprovado e imutável (auditado) }
+  /v1/tenant/settlement/statements/{statement_id}/payouts:
+    post:
+      operationId: recordPayout
+      x-koovela-action: settlement.payout.record
+      parameters:
+        - { name: statement_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [paid_on, method, amount_cents]
+              properties:
+                paid_on: { type: string, format: date }
+                method: { type: string, enum: [pix, transfer, cash, other] }
+                amount_cents: { type: integer, minimum: 1 }
+      responses:
+        '201': { description: Registrado (parcial deixa saldo; auditado) }
+        '422': { description: settlement.payout_exceeds_due }
+  /v1/pro/settlement/statements:
+    get:
+      operationId: listMyStatements
+      x-koovela-action: pro.settlement.read
+      responses:
+        '200': { description: Previsto, a receber, recebido por período (K03/KD3) }
+  /v1/pro/settlement/statements/{statement_id}/disputes:
+    post:
+      operationId: openDispute
+      x-koovela-action: pro.settlement.dispute
+      parameters: [ { name: statement_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target, target_id, reason]
+              properties:
+                target: { type: string, enum: [line, adjustment] }
+                target_id: { type: string, format: uuid }
+                reason: { type: string, minLength: 5 }
+      responses:
+        '201': { description: Contestação aberta }
+        '409': { description: settlement.dispute_window_closed }
+  /v1/pro/settlement/payouts/{payout_id}/ack:
+    post:
+      operationId: ackPayout
+      x-koovela-action: pro.settlement.ack
+      parameters: [ { name: payout_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [status], properties: { status: { type: string, enum: [confirmed, diverged] }, note: { type: string } } }
+      responses:
+        '200': { description: Confirmação ou divergência registrada }
+  /v1/pro/settlement/statements/{statement_id}/pdf:
+    get:
+      operationId: downloadMyStatement
+      x-koovela-action: pro.settlement.read
+      parameters: [ { name: statement_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Demonstrativo do período aprovado (PDF) }
+  /v1/admin/settlement/statements:
+    get:
+      operationId: adminListStatements
+      x-koovela-action: admin.settlement.read
+      parameters: [ { name: tenant_id, in: query, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Consulta pelo Financeiro/Ops (leitura, auditada) }

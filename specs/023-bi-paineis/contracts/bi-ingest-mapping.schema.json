@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://koovela.com/schemas/bi-ingest-mapping.json",
+  "title": "Mapa de ingestão do BI por tipo de evento (spec 023)",
+  "description": "Só campos listados chegam ao ClickHouse. O CI falha se algum campo listado estiver marcado x-pii no AsyncAPI de origem.",
+  "type": "object",
+  "required": ["event_type", "source_contract", "fields"],
+  "properties": {
+    "event_type": { "type": "string", "examples": ["scheduling.appointment.completed.v1"] },
+    "source_contract": { "type": "string", "description": "Caminho do AsyncAPI de origem" },
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to"],
+        "properties": {
+          "from": { "type": "string", "description": "JSON pointer no payload" },
+          "to": { "type": "string", "enum": ["tenant_id", "branch_id", "subject_pseudo", "staff_pseudo", "amount_cents", "currency", "state", "occurred_at", "dims.vertical", "dims.category", "dims.city", "dims.plan", "dims.channel", "dims.origin", "refs.*"] },
+          "transform": { "type": "string", "enum": ["none", "pseudonymize_consumer", "pseudonymize_staff"] }
+        }
+      }
+    }
+  }
+}

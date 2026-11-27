@@ -1,0 +1,57 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Loyalty — eventos (spec 015)
+  version: 1.0.0
+  description: >
+    Outbox do loyalty → loyalty.events. Consome scheduling.appointment.{confirmed,completed,cancelled_*,no_show}.v1 (009),
+    payments.payment.{approved,on_site_recorded}.v1 e payments.refund.succeeded.v1 (012).
+    A 011 transforma os eventos em avisos ao consumidor.
+defaultContentType: application/json
+channels:
+  loyaltyEvents:
+    address: loyalty.events
+    messages:
+      pointsChanged: { $ref: '#/components/messages/PointsChanged' }
+      tierChanged: { $ref: '#/components/messages/TierChanged' }
+      programChanged: { $ref: '#/components/messages/ProgramChanged' }
+      capThreshold: { $ref: '#/components/messages/CapThreshold' }
+      abuseAlert: { $ref: '#/components/messages/AbuseAlert' }
+operations:
+  publishLoyaltyEvents:
+    action: send
+    channel: { $ref: '#/channels/loyaltyEvents' }
+components:
+  messages:
+    PointsChanged:
+      name: loyalty.points.changed
+      summary: event_type ∈ loyalty.points.{credited,reserved,consumed,released,expired,reversed,adjusted,expiring_soon}.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              account_id: { type: string, format: uuid }
+              consumer_id: { type: string, format: uuid }
+              business_id: { type: string, format: uuid }
+              points: { type: integer }
+              available: { type: integer }
+              appointment_id: { type: [string, 'null'], format: uuid }
+              reward_id: { type: [string, 'null'], format: uuid }
+              reward_kind: { type: [string, 'null'], enum: [free_service, discount_cents, discount_pct, gift, null] }
+              discount_cents: { type: [integer, 'null'], description: 'Em reserved/consumed/released: desconto do resgate no agendamento (009 grava; 012 usa no split e na comissão)' }
+    TierChanged:
+      name: loyalty.tier.changed.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { account_id: { type: string, format: uuid }, from_tier: { type: integer }, to_tier: { type: integer } } } } }
+    ProgramChanged:
+      name: loyalty.program.changed
+      summary: event_type ∈ loyalty.program.{published,disabled,ended}.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { business_id: { type: string, format: uuid }, version_id: { type: string, format: uuid } } } } }
+    CapThreshold:
+      name: loyalty.cost_cap.threshold.v1
+      summary: 80% (aviso) e 100% (catálogo pausado)
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { business_id: { type: string, format: uuid }, pct: { type: integer } } } } }
+    AbuseAlert:
+      name: loyalty.abuse.detected.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { alert_id: { type: string, format: uuid }, rule: { type: string } } } } }

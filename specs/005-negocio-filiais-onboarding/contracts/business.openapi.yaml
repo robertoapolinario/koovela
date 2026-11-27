@@ -1,0 +1,425 @@
+openapi: 3.1.0
+info:
+  title: Koovela Tenancy — negócio, filiais, onboarding e página pública
+  version: 1.0.0
+  description: >
+    Spec 005. Toda operação declara x-koovela-action (matriz RBAC). Rotas /v1/tenant usam o tenant
+    da credencial; /v1/public usa o slug resolvido pelo gateway. Erros Problem Details (spec 001).
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/onboarding/clients:
+    post:
+      operationId: startOnboarding
+      x-koovela-action: onboarding.start
+      summary: Cria o Cliente, pede o provisionamento e cria Proprietário + negócio (+ filial única no caminho solo)
+      parameters: [ { name: Idempotency-Key, in: header, required: true, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [path, business_name, vertical_code]
+              properties:
+                path: { type: string, enum: [solo, network] }
+                business_name: { type: string, minLength: 1, maxLength: 80 }
+                vertical_code: { type: string }
+                slug: { type: string, pattern: '^[a-z0-9](?:[a-z0-9-]{1,48}[a-z0-9])$' }
+                solo_location: { $ref: '#/components/schemas/AddressInput' }
+      responses:
+        '202':
+          description: Em preparo; consultar o progresso
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OnboardingProgress' }
+  /v1/onboarding/progress:
+    get:
+      operationId: getOnboardingProgress
+      x-koovela-action: onboarding.progress.read
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OnboardingProgress' }
+          description: Passos e estado do tenant (provisioning | active)
+  /v1/slugs/availability:
+    get:
+      operationId: checkSlug
+      x-koovela-action: public.slug.check
+      security: []
+      parameters: [ { name: slug, in: query, required: true, schema: { type: string } } ]
+      responses:
+        '200':
+          description: Disponível ou não, com até 5 sugestões
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [available]
+                properties:
+                  available: { type: boolean }
+                  reason: { type: [string, 'null'], enum: [taken, reserved, offensive, invalid_format, null] }
+                  suggestions: { type: array, items: { type: string } }
+  /v1/tenant/client-profile:
+    put:
+      operationId: upsertClientProfile
+      x-koovela-action: tenant.client_profile.update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [person_type, document, legal_name]
+              properties:
+                person_type: { type: string, enum: [individual, company] }
+                document: { type: string, pattern: '^[0-9]{11}$|^[0-9]{14}$' }
+                legal_name: { type: string }
+                trade_name: { type: string }
+                fiscal_address: { $ref: '#/components/schemas/AddressInput' }
+      responses:
+        '200': { description: Salvo (documento cifrado) }
+  /v1/tenant/cnpj-lookup/{cnpj}:
+    get:
+      operationId: lookupCnpj
+      x-koovela-action: tenant.cnpj.lookup
+      parameters: [ { name: cnpj, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '200': { description: Razão social e endereço da consulta pública, para confirmar }
+  /v1/tenant/terms:
+    get:
+      operationId: getCurrentTerms
+      x-koovela-action: tenant.terms.read
+      responses:
+        '200': { description: Versões vigentes de termos e privacidade e se já foram aceitas }
+    post:
+      operationId: acceptTerms
+      x-koovela-action: tenant.terms.accept
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [document_type, version, document_sha256]
+              properties:
+                document_type: { type: string, enum: [terms, privacy] }
+                version: { type: string }
+                document_sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+      responses:
+        '201': { description: Aceite registrado com IP, aparelho e horário }
+  /v1/tenant/businesses:
+    get:
+      operationId: listBusinesses
+      x-koovela-action: business.read
+      responses:
+        '200': { description: Negócios do tenant }
+    post:
+      operationId: createBusiness
+      x-koovela-action: business.create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BusinessInput' }
+      responses:
+        '201': { description: Negócio em draft }
+  /v1/tenant/businesses/{business_id}:
+    patch:
+      operationId: updateBusiness
+      x-koovela-action: business.update
+      parameters: [ { $ref: '#/components/parameters/BusinessId' } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BusinessInput' }
+      responses:
+        '200': { description: Atualizado; slug só editável em draft }
+  /v1/tenant/businesses/{business_id}/readiness:
+    get:
+      operationId: getReadiness
+      x-koovela-action: business.read
+      parameters: [ { $ref: '#/components/parameters/BusinessId' } ]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Readiness' }
+          description: Lista de passos e o que falta para publicar
+  /v1/tenant/businesses/{business_id}/publish:
+    post:
+      operationId: publishBusiness
+      x-koovela-action: business.publish
+      parameters: [ { $ref: '#/components/parameters/BusinessId' } ]
+      responses:
+        '200': { description: Publicado; slug ativo }
+        '409': { description: Requisitos pendentes (tenancy.publication_not_ready) }
+  /v1/tenant/businesses/{business_id}/unpublish:
+    post:
+      operationId: unpublishBusiness
+      x-koovela-action: business.unpublish
+      parameters: [ { $ref: '#/components/parameters/BusinessId' } ]
+      responses:
+        '200': { description: Despublicado }
+  /v1/tenant/businesses/{business_id}/media:
+    post:
+      operationId: uploadBusinessMedia
+      x-koovela-action: business.update
+      parameters: [ { $ref: '#/components/parameters/BusinessId' } ]
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                kind: { type: string, enum: [logo, cover] }
+                file: { type: string, format: binary, description: Até 5 MB; JPG, PNG ou WebP }
+      responses:
+        '201': { description: Convertida para AVIF/WebP em 3 larguras e servida por cdn.koovela.com }
+  /v1/tenant/businesses/{business_id}/qr:
+    get:
+      operationId: getQr
+      x-koovela-action: business.qr.download
+      parameters:
+        - { $ref: '#/components/parameters/BusinessId' }
+        - { name: branch_id, in: query, schema: { type: string, format: uuid } }
+        - { name: format, in: query, schema: { type: string, enum: [svg, pdf] } }
+      responses:
+        '200': { description: QR apontando para koovela.com/{slug}[/{filial}]?src=qr }
+  /v1/tenant/branches:
+    post:
+      operationId: createBranch
+      x-koovela-action: branch.create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BranchInput' }
+      responses:
+        '201': { description: Filial em draft }
+  /v1/tenant/branches/{branch_id}:
+    patch:
+      operationId: updateBranch
+      x-koovela-action: branch.update
+      parameters: [ { $ref: '#/components/parameters/BranchId' } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BranchInput' }
+      responses:
+        '200': { description: Atualizada (Gerente: só contato da própria filial) }
+  /v1/tenant/branches/{branch_id}/clone:
+    post:
+      operationId: cloneBranch
+      x-koovela-action: branch.clone
+      parameters: [ { $ref: '#/components/parameters/BranchId' } ]
+      responses:
+        '201': { description: Nova filial em draft; catálogo e comissão copiados pelas specs 006 e 007 via evento }
+  /v1/tenant/branches/{branch_id}/state:
+    post:
+      operationId: changeBranchState
+      x-koovela-action: branch.change_state
+      parameters: [ { $ref: '#/components/parameters/BranchId' } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to_state]
+              properties:
+                to_state: { type: string, enum: [active, paused, closed] }
+      responses:
+        '200': { description: Estado alterado }
+        '409': { description: Agendamentos futuros impedem o encerramento (tenancy.branch_has_future_appointments) }
+  /v1/tenant/branches/{branch_id}/opening-hours:
+    get:
+      operationId: getOpeningHours
+      x-koovela-action: branch.hours.read
+      parameters: [ { $ref: '#/components/parameters/BranchId' } ]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OpeningHours' }
+          description: Semana e exceções (também consumido pela spec 008)
+    put:
+      operationId: setOpeningHours
+      x-koovela-action: branch.hours.update
+      parameters: [ { $ref: '#/components/parameters/BranchId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OpeningHours' }
+      responses:
+        '200':
+          description: Salvo; informa quantos agendamentos futuros ficam fora (sem cancelar)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  appointments_outside: { type: [integer, 'null'] }
+  /v1/tenant/branches/{branch_id}/holiday-suggestions:
+    get:
+      operationId: getHolidaySuggestions
+      x-koovela-action: branch.hours.read
+      parameters:
+        - { $ref: '#/components/parameters/BranchId' }
+        - { name: year, in: query, schema: { type: integer } }
+      responses:
+        '200': { description: Feriados nacionais (e estaduais/municipais opcionais) para confirmar }
+  /v1/public/businesses/{slug}:
+    get:
+      operationId: getPublicBusiness
+      x-koovela-action: public.business.read
+      security: []
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: src, in: query, schema: { type: string, enum: [link, qr] } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicBusiness' }
+          description: Página pública; status unavailable para despublicado, suspenso ou encerrado
+        '301': { description: Slug antigo → atual }
+        '404': { description: Slug inexistente }
+  /v1/admin/slugs/{slug}/change:
+    post:
+      operationId: supportChangeSlug
+      x-koovela-action: slug.change_by_support
+      parameters: [ { name: slug, in: path, required: true, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_slug, justification]
+              properties:
+                new_slug: { type: string }
+                justification: { type: string, minLength: 10 }
+                block_old: { type: boolean, description: Marca, ofensa — o antigo fica blocked em vez de redirect }
+      responses:
+        '200': { description: Slug trocado; antigo redireciona (301) ou é bloqueado }
+components:
+  parameters:
+    BusinessId: { name: business_id, in: path, required: true, schema: { type: string, format: uuid } }
+    BranchId: { name: branch_id, in: path, required: true, schema: { type: string, format: uuid } }
+  schemas:
+    AddressInput:
+      type: object
+      required: [cep, number]
+      properties:
+        cep: { type: string, pattern: '^[0-9]{8}$' }
+        street: { type: string }
+        number: { type: string }
+        complement: { type: string }
+        neighborhood: { type: string }
+        city: { type: string }
+        state: { type: string, minLength: 2, maxLength: 2 }
+        geo_point: { type: object, properties: { lat: { type: number }, lng: { type: number } }, description: Ponto manual quando a geocodificação falha }
+        visibility: { type: string, enum: [full, neighborhood], default: full }
+    BusinessInput:
+      type: object
+      properties:
+        name: { type: string, maxLength: 80 }
+        vertical_code: { type: string }
+        slug: { type: string }
+        description: { type: string, maxLength: 1000 }
+        booking_fee_cents: { type: integer, minimum: 0, description: Só saúde, dentro da faixa do back-office }
+    BranchInput:
+      type: object
+      properties:
+        business_id: { type: string, format: uuid }
+        name: { type: string }
+        address: { $ref: '#/components/schemas/AddressInput' }
+        contact_phone: { type: string }
+        timezone: { type: string, default: America/Sao_Paulo }
+        slug: { type: string }
+    OpeningHours:
+      type: object
+      required: [timezone, weekly]
+      properties:
+        timezone: { type: string }
+        weekly:
+          type: array
+          items:
+            type: object
+            required: [weekday, intervals]
+            properties:
+              weekday: { type: integer, minimum: 1, maximum: 7 }
+              intervals:
+                type: array
+                items:
+                  type: object
+                  required: [start, end]
+                  properties:
+                    start: { type: string, pattern: '^[0-2][0-9]:[0-5][0-9]$' }
+                    end: { type: string, pattern: '^[0-2][0-9]:[0-5][0-9]$' }
+        exceptions:
+          type: array
+          items:
+            type: object
+            required: [date, kind]
+            properties:
+              date: { type: string, format: date }
+              kind: { type: string, enum: [closed, special_hours] }
+              intervals: { type: array, items: { type: object } }
+              source: { type: string, enum: [suggested_holiday, manual] }
+    OnboardingProgress:
+      type: object
+      required: [tenant_state, path, steps]
+      properties:
+        tenant_id: { type: string, format: uuid }
+        tenant_state: { type: string, enum: [provisioning, active, provisioning_failed] }
+        path: { type: string, enum: [solo, network] }
+        current_step: { type: string }
+        steps:
+          type: object
+          additionalProperties: { type: string, enum: [done, pending, optional] }
+        continues_in_background: { type: boolean }
+    Readiness:
+      type: object
+      required: [can_publish, requirements]
+      properties:
+        can_publish: { type: boolean }
+        requirements:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string, enum: [terms_accepted, service_published, professional_with_hours, kyc_approved, subscription_active] }
+              state: { type: string, enum: [done, pending, optional] }
+              blocking: { type: boolean }
+              estimated_minutes: { type: integer }
+    PublicBusiness:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [published, unavailable] }
+        business_id: { type: string, format: uuid }
+        name: { type: string }
+        vertical: { type: object, properties: { code: { type: string }, category: { type: string }, customer_label: { type: string } } }
+        description: { type: string }
+        logo_url: { type: string }
+        cover_url: { type: string }
+        price_display: { type: string, enum: [public, never] }
+        booking_fee: { type: [object, 'null'], properties: { amount_cents: { type: integer }, currency: { type: string } } }
+        payment_mode: { type: string, enum: [online_and_on_site, on_site_only] }
+        branches:
+          type: array
+          items:
+            type: object
+            properties:
+              branch_id: { type: string, format: uuid }
+              name: { type: string }
+              slug: { type: [string, 'null'] }
+              address_display: { type: string, description: Endereço completo ou só bairro e cidade }
+              public_geo_point: { type: object }
+              timezone: { type: string }
+              opening_hours_summary: { type: array, items: { type: string } }
+        og: { type: object, properties: { title: { type: string }, image: { type: string }, city: { type: string } } }

@@ -1,0 +1,67 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Catalog — eventos (spec 006)
+  version: 1.0.0
+  description: Outbox do catalog → catalog.events. Envelope da spec 001. Consome tenancy.branch.cloned.v1 (005).
+defaultContentType: application/json
+channels:
+  catalogEvents:
+    address: catalog.events
+    messages:
+      servicePublished: { $ref: '#/components/messages/CatalogItemChanged' }
+      serviceChanged: { $ref: '#/components/messages/CatalogItemChanged' }
+      serviceDeactivated: { $ref: '#/components/messages/CatalogItemChanged' }
+      comboChanged: { $ref: '#/components/messages/CatalogItemChanged' }
+      comboDeactivated: { $ref: '#/components/messages/CatalogItemChanged' }
+      packageChanged: { $ref: '#/components/messages/CatalogItemChanged' }
+      branchAvailabilityChanged: { $ref: '#/components/messages/BranchAvailabilityChanged' }
+  tenancyEvents:
+    address: tenancy.events
+    description: Consumido — tenancy.branch.cloned.v1 (copia disponibilidade e preços próprios)
+operations:
+  publishCatalogEvents:
+    action: send
+    channel: { $ref: '#/channels/catalogEvents' }
+  consumeBranchCloned:
+    action: receive
+    channel: { $ref: '#/channels/tenancyEvents' }
+components:
+  messages:
+    CatalogItemChanged:
+      name: catalog.item.changed
+      summary: >
+        event_type ∈ catalog.service.{published,changed,deactivated}.v1,
+        catalog.combo.{changed,deactivated}.v1, catalog.package.changed.v1
+      payload:
+        type: object
+        required: [event_id, event_type, tenant_id, occurred_at, data]
+        properties:
+          event_id: { type: string, format: uuid }
+          event_type: { type: string }
+          tenant_id: { type: string, format: uuid }
+          occurred_at: { type: string, format: date-time }
+          data:
+            type: object
+            required: [item_kind, item_id, business_id]
+            properties:
+              item_kind: { type: string, enum: [service, combo, package] }
+              item_id: { type: string, format: uuid }
+              business_id: { type: string, format: uuid }
+              version_id: { type: string, format: uuid }
+              valid_from: { type: string, format: date-time }
+              state: { type: string }
+              reason: { type: [string, 'null'], description: 'ex.: step_unavailable' }
+    BranchAvailabilityChanged:
+      name: catalog.branch_availability.changed.v1
+      payload:
+        type: object
+        properties:
+          event_id: { type: string, format: uuid }
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              service_id: { type: string, format: uuid }
+              branch_id: { type: string, format: uuid }
+              available: { type: boolean }
+              branch_price_version_id: { type: [string, 'null'], format: uuid }

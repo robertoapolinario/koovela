@@ -1,0 +1,264 @@
+openapi: 3.1.0
+info:
+  title: Koovela Discovery — destaque pago (spec 032)
+  version: 1.0.0
+  description: >
+    Spec 032. x-koovela-action em toda operação. Tenant resolvido no gateway.
+    A resposta de busca/home da 024 ganha o campo `sponsored` (SponsoredBand), separado de `results`.
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/tenant/discovery/sponsored/options:
+    get:
+      operationId: getSponsoredOptions
+      x-koovela-action: discovery.sponsored.read
+      parameters:
+        - { name: branch_id, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Elegibilidade, bairros/categorias da filial, pacotes e preços vigentes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  eligible: { type: boolean }
+                  ineligible_reasons:
+                    type: array
+                    items: { type: string, enum: [not_in_showcase, profile_incomplete, invoice_overdue, no_offer_for_region] }
+                  options:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        region_id: { type: string, format: uuid }
+                        region_name: { type: string }
+                        category: { type: string }
+                        offer_version_id: { type: string, format: uuid }
+                        packages:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              package_code: { type: string }
+                              duration_days: { type: integer, minimum: 1 }
+                              price_cents: { type: integer, minimum: 1 }
+  /v1/tenant/discovery/sponsored/availability:
+    get:
+      operationId: getSponsoredAvailability
+      x-koovela-action: discovery.sponsored.read
+      parameters:
+        - { name: region_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: category, in: query, required: true, schema: { type: string } }
+        - { name: duration_days, in: query, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Calendário de 90 dias e próxima data de início disponível
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  days:
+                    type: array
+                    items: { type: object, properties: { day: { type: string, format: date }, free: { type: integer } } }
+                  next_available_start: { type: [string, 'null'], format: date }
+  /v1/tenant/discovery/sponsored:
+    get:
+      operationId: listSponsorships
+      x-koovela-action: discovery.sponsored.read
+      responses:
+        '200': { description: Destaques da filial/negócio com estado }
+    post:
+      operationId: purchaseSponsorship
+      x-koovela-action: discovery.sponsored.purchase
+      x-koovela-step-up: required
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [branch_id, region_id, category, offer_version_id, package_code, starts_on]
+              properties:
+                branch_id: { type: string, format: uuid }
+                region_id: { type: string, format: uuid }
+                category: { type: string }
+                offer_version_id: { type: string, format: uuid }
+                package_code: { type: string }
+                starts_on: { type: string, format: date }
+      responses:
+        '201':
+          description: Destaque em pending_payment; cartão já cobrado ou QR Pix com expiração
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sponsorship_id: { type: string, format: uuid }
+                  state: { type: string, enum: [pending_payment, reserved] }
+                  price_cents: { type: integer }
+                  pix: { type: [object, 'null'], properties: { qr_code: { type: string }, expires_at: { type: string, format: date-time } } }
+        '409': { description: 'sponsored.sold_out (com next_available_start) | sponsored.price_changed' }
+        '422': { description: 'sponsored.ineligible (com motivos)' }
+  /v1/tenant/discovery/sponsored/{sponsorship_id}/cancel:
+    post:
+      operationId: cancelSponsorship
+      x-koovela-action: discovery.sponsored.cancel
+      x-koovela-step-up: required
+      parameters:
+        - { name: sponsorship_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: 'cancelled com estorno integral (≥ 48 h antes do início)' }
+        '409': { description: 'sponsored.cancel_window_closed — sem reembolso' }
+  /v1/tenant/discovery/sponsored/{sponsorship_id}/results:
+    get:
+      operationId: getSponsorshipResults
+      x-koovela-action: discovery.sponsored.results.read
+      parameters:
+        - { name: sponsorship_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Agregados diários, sem identificar consumidores
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  days:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        day: { type: string, format: date }
+                        impressions: { type: integer }
+                        clicks: { type: integer }
+                        visits: { type: integer }
+                        bookings: { type: integer }
+                        completed_revenue_cents: { type: integer }
+                  renew_available_from: { type: [string, 'null'], format: date }
+  /v1/public/discovery/sponsored/{sponsorship_id}/click:
+    post:
+      operationId: registerSponsoredClick
+      x-koovela-action: public.discovery.sponsored.click
+      description: Sem identificador de consumidor; devolve token de atribuição para a sessão
+      parameters:
+        - { name: sponsorship_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { type: object, properties: { attribution_token: { type: string }, expires_at: { type: string, format: date-time } } }
+          description: Token assinado (sponsorship_id, nonce, exp)
+  /v1/public/discovery/sponsored/impressions:
+    post:
+      operationId: confirmSponsoredImpressions
+      x-koovela-action: public.discovery.sponsored.impression
+      description: Beacon em lote do app; só ids
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { sponsorship_ids: { type: array, maxItems: 20, items: { type: string, format: uuid } } } }
+      responses:
+        '202': { description: Aceito }
+  /v1/admin/discovery/sponsored/offers:
+    get:
+      operationId: listSponsoredOffers
+      x-koovela-action: admin.discovery.sponsored.read
+      responses:
+        '200': { description: Versões de oferta por escopo }
+    post:
+      operationId: proposeSponsoredOffer
+      x-koovela-action: admin.discovery.sponsored.offer.propose
+      responses:
+        '201': { description: 'proposed (Comercial/Growth) ou approved (Fin/Ops)' }
+  /v1/admin/discovery/sponsored/offers/{version_id}/approve:
+    post:
+      operationId: approveSponsoredOffer
+      x-koovela-action: admin.discovery.sponsored.offer.approve
+      parameters:
+        - { name: version_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Aprovada (Fin/Ops, autor diferente do proponente) }
+  /v1/admin/discovery/sponsored/occupancy:
+    get:
+      operationId: getSponsoredOccupancy
+      x-koovela-action: admin.discovery.sponsored.read
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: region_id, in: query, schema: { type: string, format: uuid } }
+        - { name: category, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Vendidos por dia, taxa de ocupação e receita por região e categoria }
+  /v1/admin/discovery/sponsored/{sponsorship_id}/refund:
+    post:
+      operationId: refundSponsorshipOutsideRule
+      x-koovela-action: admin.discovery.sponsored.refund
+      x-koovela-step-up: required
+      parameters:
+        - { name: sponsorship_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [amount_cents, reason], properties: { amount_cents: { type: integer, minimum: 1 }, reason: { type: string } } }
+      responses:
+        '200': { description: Estorno fora da regra (Fin/Ops), auditado }
+  /internal/billing/one-off-charges:
+    post:
+      operationId: createOneOffCharge
+      x-koovela-action: internal.billing.one_off.charge
+      description: Implementado pelo billing (019). Fatura avulsa cobrada na hora pela forma de pagamento da assinatura.
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string }, description: sponsorship_id }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant_id, source_kind, source_id, amount_cents, description]
+              properties:
+                tenant_id: { type: string, format: uuid }
+                source_kind: { type: string, enum: [sponsorship] }
+                source_id: { type: string, format: uuid }
+                amount_cents: { type: integer, minimum: 1 }
+                description: { type: string }
+      responses:
+        '202': { description: 'Cobrança iniciada; resultado por billing.sponsored_slot.charged.v1 ou falha' }
+  /internal/billing/one-off-charges/{source_id}/refund:
+    post:
+      operationId: refundOneOffCharge
+      x-koovela-action: internal.billing.one_off.refund
+      parameters:
+        - { name: source_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [amount_cents, reason], properties: { amount_cents: { type: integer }, reason: { type: string, enum: [cancel_48h, region_closed, moderation_compensation, admin_outside_rule] } } }
+      responses:
+        '202': { description: 'Estorno e ajuste fiscal; resultado por billing.sponsored_slot.refunded.v1' }
+components:
+  schemas:
+    SponsoredBand:
+      description: Campo `sponsored` na resposta de busca/home da 024; ausente ou vazio quando não há destaques
+      type: object
+      properties:
+        label: { type: string, const: Patrocinado }
+        explanation: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+            required: [sponsorship_id, branch_id, sponsored]
+            properties:
+              sponsorship_id: { type: string, format: uuid }
+              branch_id: { type: string, format: uuid }
+              sponsored: { type: boolean, const: true }
+              name: { type: string }
+              slug: { type: string }
+              category: { type: string }
+              cover_url: { type: string }
+              min_price_cents: { type: [integer, 'null'], description: Sempre null em saúde }
+              rating: { type: [object, 'null'], description: Sempre null em saúde }
+              next_free_slot_at: { type: [string, 'null'], format: date-time }

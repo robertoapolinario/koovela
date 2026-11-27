@@ -1,0 +1,65 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela — eventos de atendimento no endereço e orçamentos (spec 033)
+  version: 1.0.0
+  description: >
+    Outbox, idempotentes por id + versão. Eventos nunca levam endereço, descrição nem fotos.
+    Consumidores: discovery (área → listagem), notifications (011), projections (consumer_quotes_index), bi (023).
+defaultContentType: application/json
+channels:
+  catalogEvents:
+    address: catalog.events
+    messages:
+      serviceLocationChanged: { $ref: '#/components/messages/ServiceLocationChanged' }
+  schedulingEvents:
+    address: scheduling.events
+    messages:
+      serviceAreaChanged: { $ref: '#/components/messages/ServiceAreaChanged' }
+      fieldEvent: { $ref: '#/components/messages/FieldEvent' }
+  quotesEvents:
+    address: quotes.events
+    messages:
+      quoteRequestLifecycle: { $ref: '#/components/messages/QuoteRequestLifecycle' }
+      quoteLifecycle: { $ref: '#/components/messages/QuoteLifecycle' }
+operations:
+  publishCatalog: { action: send, channel: { $ref: '#/channels/catalogEvents' } }
+  publishScheduling: { action: send, channel: { $ref: '#/channels/schedulingEvents' } }
+  publishQuotes: { action: send, channel: { $ref: '#/channels/quotesEvents' } }
+components:
+  messages:
+    ServiceLocationChanged:
+      name: catalog.service.location_changed.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data: { type: object, properties: { service_id: { type: string, format: uuid }, service_version_id: { type: string, format: uuid }, location: { type: string, enum: [on_premises, customer_address] }, quote_mode: { type: string, enum: [none, accepts, requires] } } }
+    ServiceAreaChanged:
+      name: scheduling.branch.service_area_changed.v1
+      description: Dados públicos da área (projetados na listagem da 024)
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data: { type: object, properties: { branch_id: { type: string, format: uuid }, version: { type: integer }, mode: { type: string }, radius_km: { type: [number, 'null'] }, neighborhoods: { type: array, items: { type: object } }, travel_min: { type: integer } } }
+    FieldEvent:
+      name: scheduling.appointment.{arrived_at_address|running_late}.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data: { type: object, properties: { appointment_id: { type: string, format: uuid }, next_appointment_id: { type: [string, 'null'], format: uuid }, estimate_min: { type: [integer, 'null'] }, occurred_at: { type: string, format: date-time } } }
+    QuoteRequestLifecycle:
+      name: quotes.quote_request.{created|answered|declined|expired}.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data: { type: object, properties: { request_id: { type: string, format: uuid }, consumer_id: { type: string, format: uuid }, branch_id: { type: string, format: uuid }, service_id: { type: string, format: uuid }, state: { type: string }, response_due_at: { type: string, format: date-time } } }
+    QuoteLifecycle:
+      name: quotes.quote.{accepted|expired}.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data: { type: object, properties: { quote_id: { type: string, format: uuid }, request_id: { type: string, format: uuid }, price_cents: { type: integer }, duration_min: { type: integer }, valid_until: { type: string, format: date-time }, appointment_id: { type: [string, 'null'], format: uuid } } }

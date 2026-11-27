@@ -1,0 +1,77 @@
+openapi: 3.1.0
+info:
+  title: Koovela BI — dashboards do estabelecimento e insumos
+  version: 1.0.0
+  description: >
+    Spec 023. bi-api (FastAPI) atrás do gateway; tenant sempre resolvido no gateway. Os painéis da Gestão são o app Dash em bi.koovela.com.
+servers:
+  - url: http://bi-api.internal:8000
+paths:
+  /v1/tenant/dashboards/branch/{branch_id}:
+    get:
+      operationId: branchDashboard
+      x-koovela-action: bi.dashboard.branch.read
+      parameters:
+        - { name: branch_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Dashboard' }
+          description: Indicadores da filial (P01); receita omitida para quem não pode ver
+        '403': { description: bi.branch_forbidden }
+  /v1/tenant/dashboards/network:
+    get:
+      operationId: networkDashboard
+      x-koovela-action: bi.dashboard.network.read
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200': { description: Mesmos indicadores por filial e total (P02), só Proprietário }
+  /v1/admin/bi/inputs/{kind}:
+    put:
+      operationId: setManualInput
+      x-koovela-action: admin.bi.input
+      parameters: [ { name: kind, in: path, required: true, schema: { type: string, enum: [channel-spend, infra-cost] } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [month, items]
+              properties:
+                month: { type: string, pattern: '^[0-9]{4}-[0-9]{2}$' }
+                items: { type: array, items: { type: object, properties: { key: { type: string }, amount_cents: { type: integer } } } }
+      responses:
+        '200': { description: Nova versão (auditada) }
+  /v1/internal/bi/holder/{holder_consumer_id}/erase:
+    post:
+      operationId: biErase
+      x-koovela-action: internal.privacy.holder_port
+      summary: HolderDataPort do BI (spec 022) — apaga o mapeamento do pseudônimo
+      parameters: [ { name: holder_consumer_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '202': { description: Pseudônimo desligado; dados viram só contagem }
+components:
+  schemas:
+    Metric:
+      type: object
+      properties:
+        key: { type: string }
+        value: { type: [integer, 'null'], description: null quando suprimido (< 5) ou não aplicável (autônomo) }
+        unit: { type: string, enum: [count, cents, bps, x10] }
+        definition_version: { type: string }
+        suppressed: { type: boolean }
+    Dashboard:
+      type: object
+      properties:
+        updated_at: { type: string, format: date-time }
+        stale: { type: boolean, description: Atraso > 30 min }
+        is_solo: { type: boolean }
+        metrics: { type: array, items: { $ref: '#/components/schemas/Metric' } }
+        by_professional: { type: array, items: { type: object, properties: { professional_id: { type: string, format: uuid }, occupancy_bps: { type: integer } } } }
+        top_services: { type: array, items: { type: object, properties: { item_id: { type: string, format: uuid }, count: { type: integer } } } }

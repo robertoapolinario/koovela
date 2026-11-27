@@ -1,0 +1,222 @@
+openapi: 3.1.0
+info:
+  title: Koovela Partners — parceiros indicadores (spec 038)
+  version: 1.0.0
+  description: >
+    Spec 038. x-koovela-action em toda operação. Portal (kind=partner, segundo fator obrigatório) em parceiros.koovela.com;
+    back-office no admin-web; extensões no onboarding (005).
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/public/partners/applications:
+    post:
+      operationId: applyAsPartner
+      x-koovela-action: public.partners.apply
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cnpj, legal_name, kind, contact_name, contact_email, bank_account, terms_version]
+              properties:
+                cnpj: { type: string, pattern: '^[0-9]{14}$' }
+                legal_name: { type: string }
+                kind: { type: string, enum: [administrator, franchisor, accountant, association, other] }
+                contact_name: { type: string }
+                contact_email: { type: string, format: email }
+                contact_phone: { type: [string, 'null'] }
+                bank_account: { type: object, properties: { bank: { type: string }, branch: { type: string }, account: { type: string }, pix_key: { type: [string, 'null'] } } }
+                terms_version: { type: string }
+      responses:
+        '201': { description: requested }
+        '409': { description: 'partners.cnpj_already_registered' }
+        '422': { description: 'partners.cnpj_invalid' }
+  /p/{code}:
+    get:
+      operationId: referralLanding
+      x-koovela-action: public.partners.landing
+      description: Página em koovela.com; grava cookie kv_ref (90 dias) e redireciona ao cadastro
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses:
+        '302': { description: Redireciona ao onboarding (005) }
+  /v1/partner/me:
+    get:
+      operationId: getPartnerHome
+      x-koovela-action: partner.read
+      responses:
+        '200': { description: Estado, link, código, valor vigente }
+  /v1/partner/members:
+    post:
+      operationId: invitePartnerMember
+      x-koovela-action: partner.members.invite
+      description: Só admin do parceiro
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [email, role], properties: { email: { type: string, format: email }, role: { type: string, enum: [admin, member] } } } } }
+      responses:
+        '201': { description: Convite enviado }
+  /v1/partner/invite-batches:
+    post:
+      operationId: uploadInviteBatch
+      x-koovela-action: partner.invites.upload
+      requestBody:
+        content:
+          multipart/form-data:
+            schema: { type: object, required: [file], properties: { file: { type: string, format: binary, description: CSV ou XLSX, até 500 linhas } } }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  batch_id: { type: string, format: uuid }
+                  rows_valid: { type: integer }
+                  rows_skipped: { type: array, items: { type: object, properties: { row: { type: integer }, reason: { type: string, enum: [invalid, duplicate, cooldown_90d, suppressed, sms_cap] } } } }
+          description: Prévia
+        '422': { description: 'partners.batch_too_large' }
+  /v1/partner/invite-batches/{batch_id}/send:
+    post:
+      operationId: sendInviteBatch
+      x-koovela-action: partner.invites.send
+      parameters:
+        - { name: batch_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [authorization_declared, declaration_version], properties: { authorization_declared: { const: true }, declaration_version: { type: string } } } } }
+      responses:
+        '202': { description: Envio pela 011 (≤ 3 min para 100) }
+        '403': { description: 'partners.partner_not_approved' }
+  /v1/partner/referrals:
+    get:
+      operationId: listReferrals
+      x-koovela-action: partner.referrals.read
+      parameters:
+        - { name: month, in: query, schema: { type: string, pattern: '^[0-9]{4}-[0-9]{2}$' } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  funnel: { type: object, properties: { invited: { type: integer }, signed_up: { type: integer }, activated: { type: integer }, paid: { type: integer } } }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      properties:
+                        business_name: { type: string }
+                        city: { type: string }
+                        signed_up_at: { type: string, format: date }
+                        stage: { type: string, enum: [signed_up, activated, expired, reversed, voided] }
+                        days_left: { type: [integer, 'null'] }
+          description: Só nome, cidade, cadastro, etapa e prazo
+  /v1/partner/statements:
+    get:
+      operationId: listStatements
+      x-koovela-action: partner.statements.read
+      responses:
+        '200': { description: Extratos mensais com estado }
+  /v1/partner/statements/{statement_id}/invoice:
+    post:
+      operationId: submitStatementInvoice
+      x-koovela-action: partner.statements.invoice
+      description: Só admin do parceiro
+      parameters:
+        - { name: statement_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          multipart/form-data:
+            schema: { type: object, required: [xml], properties: { xml: { type: string, format: binary }, pdf: { type: string, format: binary } } }
+      responses:
+        '201': { description: 'submitted; auto_check ok ou lista de falhas (CNPJ, tomador, valor, cancelada)' }
+  /v1/partner/materials:
+    get:
+      operationId: listMaterials
+      x-koovela-action: partner.materials.read
+      responses:
+        '200': { description: Materiais aprovados com URL assinada }
+  /v1/tenant/referral:
+    get:
+      operationId: getMyReferral
+      x-koovela-action: tenancy.referral.read
+      responses:
+        '200': { description: '"indicado por" e prazo de contestação' }
+  /v1/tenant/referral/dispute:
+    post:
+      operationId: disputeReferral
+      x-koovela-action: tenancy.referral.dispute
+      description: Só Proprietário, até 7 dias depois da criação
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [reason], properties: { reason: { type: string, maxLength: 500 } } } } }
+      responses:
+        '200': { description: disputed }
+        '409': { description: 'partners.dispute_window_closed' }
+  /v1/admin/partners:
+    get:
+      operationId: listPartners
+      x-koovela-action: admin.partners.read
+      responses:
+        '200': { description: Pedidos e parceiros com métricas }
+  /v1/admin/partners/{partner_id}/decision:
+    post:
+      operationId: decidePartner
+      x-koovela-action: admin.partners.decide
+      parameters:
+        - { name: partner_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [action], properties: { action: { type: string, enum: [approve, reject, suspend, reactivate, close] }, reason: { type: string }, rate_source: { type: string, enum: [default, contract] }, contract_amount_cents: { type: [integer, 'null'] }, contract_ref: { type: [string, 'null'] } } } } }
+      responses:
+        '200': { description: Decisão auditada; valor de contrato pendente de aprovação do Fin/Ops }
+  /v1/admin/partners/rates/default:
+    post:
+      operationId: proposeDefaultRate
+      x-koovela-action: admin.partners.rate.propose
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [amount_cents, effective_from], properties: { amount_cents: { type: integer, minimum: 1 }, effective_from: { type: string, format: date } } } } }
+      responses:
+        '201': { description: Proposta; aprovação do Fin/Ops }
+  /v1/admin/partners/rates/{version_id}/approve:
+    post:
+      operationId: approveRate
+      x-koovela-action: admin.partners.rate.approve
+      parameters:
+        - { name: version_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Aprovada (pessoa diferente do proponente) }
+  /v1/admin/partners/attributions/{attribution_id}/decision:
+    post:
+      operationId: decideDispute
+      x-koovela-action: admin.partners.dispute.decide
+      parameters:
+        - { name: attribution_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [outcome, reason], properties: { outcome: { type: string, enum: [valid, voided] }, reason: { type: string } } } } }
+      responses:
+        '200': { description: Decidido; voided com ativação gera estorno no próximo extrato }
+  /v1/admin/partners/statements/{statement_id}/invoice/decision:
+    post:
+      operationId: reviewStatementInvoice
+      x-koovela-action: admin.partners.invoice.review
+      parameters:
+        - { name: statement_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [outcome], properties: { outcome: { type: string, enum: [approved, rejected] }, reason: { type: string } } } } }
+      responses:
+        '200': { description: Conferência registrada }
+  /v1/admin/partners/statements/{statement_id}/payout:
+    post:
+      operationId: registerPayout
+      x-koovela-action: admin.partners.payout
+      x-koovela-step-up: required
+      parameters:
+        - { name: statement_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          multipart/form-data:
+            schema: { type: object, required: [paid_on, amount_cents, receipt], properties: { paid_on: { type: string, format: date }, amount_cents: { type: integer }, receipt: { type: string, format: binary } } }
+      responses:
+        '201': { description: paid }
+        '409': { description: 'partners.invoice_not_approved | partners.amount_mismatch' }

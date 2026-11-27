@@ -1,0 +1,62 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Partners — eventos (spec 038)
+  version: 1.0.0
+  description: >
+    Outbox, idempotentes. Sem dados bancários nem contatos de convite.
+    Consome: tenancy.tenant.created (002/005, com documento em HMAC), billing.invoice.changed (019),
+    identity.person.* (003). Consumidores: notifications (011), bi (023), back-office (021), auditoria (004).
+defaultContentType: application/json
+channels:
+  partnersEvents:
+    address: partners.events
+    messages:
+      partner: { $ref: '#/components/messages/PartnerLifecycle' }
+      referral: { $ref: '#/components/messages/ReferralLifecycle' }
+      activation: { $ref: '#/components/messages/ActivationLifecycle' }
+      statement: { $ref: '#/components/messages/StatementLifecycle' }
+operations:
+  publishPartners:
+    action: send
+    channel: { $ref: '#/channels/partnersEvents' }
+components:
+  messages:
+    PartnerLifecycle:
+      name: partners.partner.{approved|suspended}.v1
+      payload:
+        type: object
+        properties:
+          partner_id: { type: string, format: uuid }
+          kind: { type: string }
+          rate_cents: { type: [integer, 'null'] }
+          reason: { type: [string, 'null'] }
+    ReferralLifecycle:
+      name: partners.referral.{invited|attributed|disputed}.v1
+      payload:
+        type: object
+        properties:
+          partner_id: { type: string, format: uuid }
+          batch_id: { type: [string, 'null'], format: uuid }
+          invites_sent: { type: [integer, 'null'] }
+          tenant_id: { type: [string, 'null'], format: uuid }
+          source: { type: [string, 'null'], enum: [link, code, invite, null] }
+    ActivationLifecycle:
+      name: partners.activation.{achieved|expired|reversed}.v1
+      payload:
+        type: object
+        properties:
+          partner_id: { type: string, format: uuid }
+          tenant_id: { type: string, format: uuid }
+          amount_cents: { type: [integer, 'null'] }
+          invoice_id: { type: [string, 'null'], format: uuid }
+          reason: { type: [string, 'null'] }
+    StatementLifecycle:
+      name: partners.statement.{closed|paid}.v1
+      payload:
+        type: object
+        properties:
+          statement_id: { type: string, format: uuid }
+          partner_id: { type: string, format: uuid }
+          month: { type: string }
+          total_cents: { type: integer }
+          paid_on: { type: [string, 'null'], format: date }

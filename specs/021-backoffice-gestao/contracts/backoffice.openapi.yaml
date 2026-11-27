@@ -1,0 +1,250 @@
+openapi: 3.1.0
+info:
+  title: Koovela Back-office — gestão, concessões, antifraude e chargebacks
+  version: 1.0.0
+  description: >
+    Spec 021. Só em admin.koovela.com (Access + MFA + IPs). x-koovela-action em toda operação, cada uma com célula na matriz.
+    PII sempre mascarada; revelação por campo com justificativa e auditoria.
+servers:
+  - url: https://admin-api.koovela.com
+paths:
+  /v1/admin/overview:
+    get:
+      operationId: platformOverview
+      x-koovela-action: admin.overview.read
+      responses:
+        '200': { description: KPIs agregados (G01), atualizados a cada 15 min }
+  /v1/admin/tenants:
+    get:
+      operationId: searchTenants
+      x-koovela-action: admin.tenant.search
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, description: Nome, slug, CNPJ completo ou e-mail completo do Proprietário } }
+      responses:
+        '200': { description: Estado, plano, assinatura, recebedor, ativação (G02) }
+  /v1/admin/tenants/{tenant_id}:
+    get:
+      operationId: tenantDetail
+      x-koovela-action: admin.tenant.read
+      parameters: [ { name: tenant_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Composição dos contratos (negócios, assinatura, recebedor, volumes 30 dias, alertas, chargebacks, sessões de suporte, concessões, histórico); partes indisponíveis sinalizadas }
+  /v1/admin/tenants/{tenant_id}/reveal:
+    post:
+      operationId: revealField
+      x-koovela-action: admin.pii.reveal
+      parameters: [ { name: tenant_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [field_ref, justification]
+              properties:
+                field_ref: { type: string }
+                justification: { type: string, minLength: 10 }
+                ticket_ref: { type: string }
+      responses:
+        '200': { description: Valor completo (no-store), auditado }
+  /v1/admin/tenants/{tenant_id}/notes:
+    post:
+      operationId: addTenantNote
+      x-koovela-action: admin.tenant.note
+      parameters: [ { name: tenant_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [body], properties: { body: { type: string, maxLength: 2000 } } }
+      responses:
+        '201': { description: Observação interna }
+  /v1/admin/onboarding:
+    get:
+      operationId: onboardingBoard
+      x-koovela-action: admin.onboarding.read
+      responses:
+        '200': { description: Passo, dias parados, recebedor, situação do CNPJ (G04) }
+  /v1/admin/payees/{payee_id}/{action}:
+    post:
+      operationId: payeeAction
+      x-koovela-action: admin.payee.manage
+      parameters:
+        - { name: payee_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [request-documents, resubmit, block, unblock] } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [reason], properties: { reason: { type: string }, documents_requested: { type: array, items: { type: string } } } }
+      responses:
+        '200': { description: Aplicado pela 012; Proprietário avisado; auditado }
+  /v1/admin/grants:
+    get:
+      operationId: listGrants
+      x-koovela-action: admin.grant.read
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: author_id, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Concessões e métricas (quantidade, valor, tempo, conversão) (G06) }
+    post:
+      operationId: createGrant
+      x-koovela-action: admin.grant.create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant_id, kind, value, reason]
+              properties:
+                tenant_id: { type: string, format: uuid }
+                kind: { type: string, enum: [trial_days, subscription_discount_pct, subscription_discount_cents, booking_fee_waiver_days, one_off_credit] }
+                value: { type: integer }
+                duration: { type: integer }
+                reason: { type: string }
+      responses:
+        '201': { description: Ativa (dentro do limite) ou aguardando aprovação }
+  /v1/admin/grants/{grant_id}/{action}:
+    post:
+      operationId: grantAction
+      x-koovela-action: admin.grant.decide
+      parameters:
+        - { name: grant_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [approve, reject, cancel] } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { reason: { type: string }, extra_justification: { type: string } } }
+      responses:
+        '200': { description: Decidida (auditada; mesma pessoa só com justificativa extra) }
+  /v1/admin/fraud/rules:
+    put:
+      operationId: upsertFraudRule
+      x-koovela-action: admin.fraud.rule.update
+      responses:
+        '200': { description: Nova versão da regra (auditada) }
+  /v1/admin/fraud/alerts:
+    get:
+      operationId: listAlerts
+      x-koovela-action: admin.fraud.read
+      parameters:
+        - { name: severity, in: query, schema: { type: string } }
+        - { name: state, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Alertas agrupados (G08); sem anotações nem alertas de cuidado }
+  /v1/admin/fraud/alerts/{alert_id}/actions:
+    post:
+      operationId: takeAction
+      x-koovela-action: admin.fraud.act
+      parameters: [ { name: alert_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, reason]
+              properties:
+                kind: { type: string, enum: [false_positive, hold_points, hold_reviews, block_payment_method, hold_payouts, block_consumer_temp, suspend_tenant] }
+                reason: { type: string, minLength: 10 }
+                until: { type: string, format: date-time }
+      responses:
+        '201': { description: Ação humana aplicada pela spec dona; auditada }
+  /v1/admin/fraud/actions/{action_id}/revert:
+    post:
+      operationId: revertAction
+      x-koovela-action: admin.fraud.act
+      parameters: [ { name: action_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Revertida }
+  /v1/admin/consumer-blocks/{block_id}/review:
+    post:
+      operationId: reviewConsumerBlock
+      x-koovela-action: admin.fraud.review_block
+      parameters: [ { name: block_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [decision, reason], properties: { decision: { type: string, enum: [keep, unblock] }, reason: { type: string }, extra_justification: { type: string } } }
+      responses:
+        '200': { description: Decidida por outra pessoa (ou marcada sem segunda pessoa) }
+  /v1/admin/chargebacks:
+    get:
+      operationId: listChargebacks
+      x-koovela-action: admin.chargeback.read
+      responses:
+        '200': { description: Prazo, valor, motivo, tenant, dossiê }
+  /v1/admin/chargebacks/{chargeback_id}/{action}:
+    post:
+      operationId: chargebackAction
+      x-koovela-action: admin.chargeback.manage
+      parameters:
+        - { name: chargeback_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [request-complement, submit-defense] } }
+      responses:
+        '200': { description: Aplicado (defesa pelo PaymentProvider) }
+  /v1/admin/refunds:
+    post:
+      operationId: requestManualRefund
+      x-koovela-action: admin.refund.request
+      parameters: [ { name: Idempotency-Key, in: header, required: true, schema: { type: string } } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant_id, payment_id, amount_cents, reason]
+              properties:
+                tenant_id: { type: string, format: uuid }
+                payment_id: { type: string, format: uuid }
+                amount_cents: { type: integer }
+                reason: { type: string }
+      responses:
+        '201': { description: Executado (até o limite) ou aguardando segunda pessoa }
+  /v1/admin/dual-control/{request_id}/approve:
+    post:
+      operationId: approveDualControl
+      x-koovela-action: admin.dual_control.approve
+      parameters: [ { name: request_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { extra_justification: { type: string } } }
+      responses:
+        '200': { description: Aprovado; mesma pessoa marcada no_second_person }
+  /v1/admin/queues:
+    get:
+      operationId: aggregatedQueues
+      x-koovela-action: admin.queues.read
+      responses:
+        '200': { description: Filas das outras specs com dono, prazo e link para a tela dona }
+  /v1/tenant/backoffice-requests:
+    get:
+      operationId: tenantPendingRequests
+      x-koovela-action: tenant.backoffice_request.read
+      responses:
+        '200': { description: Pedidos de documento, avisos de concessão, complementos de chargeback (painel) }
+  /v1/tenant/chargebacks/{chargeback_id}/complement:
+    post:
+      operationId: submitChargebackComplement
+      x-koovela-action: tenant.chargeback.complement
+      parameters: [ { name: chargeback_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          multipart/form-data:
+            schema: { type: object, properties: { note: { type: string }, files: { type: array, items: { type: string, format: binary } } } }
+      responses:
+        '200': { description: Anexado (até 3 dias antes do prazo) }
+        '409': { description: chargeback.complement_window_closed }
+  /v1/consumer/account-block:
+    get:
+      operationId: myBlockStatus
+      x-koovela-action: consumer.block.read
+      responses:
+        '200': { description: Motivo genérico e canal de revisão }
+    post:
+      operationId: requestBlockReview
+      x-koovela-action: consumer.block.request_review
+      responses:
+        '202': { description: Revisão pedida (decisão em até 5 dias úteis) }

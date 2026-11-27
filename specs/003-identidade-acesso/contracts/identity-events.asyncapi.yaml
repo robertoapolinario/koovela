@@ -1,0 +1,138 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Identity — eventos (spec 003)
+  version: 1.0.0
+  description: >
+    Outbox do `identity` → exchange `identity.events`. Envelope da spec 001. Nunca carregam
+    nome, celular, e-mail, CPF ou data de nascimento; só identificadores. `tenant_id` preenchido
+    quando o evento é de um tenant (equipe, suporte).
+defaultContentType: application/json
+channels:
+  identityEvents:
+    address: identity.events
+    messages:
+      consumerRegistered: { $ref: '#/components/messages/ConsumerChanged' }
+      consumerProfileCompleted: { $ref: '#/components/messages/ConsumerChanged' }
+      consumerDeactivated: { $ref: '#/components/messages/ConsumerChanged' }
+      staffInvited: { $ref: '#/components/messages/StaffChanged' }
+      staffJoined: { $ref: '#/components/messages/StaffChanged' }
+      staffRemoved: { $ref: '#/components/messages/StaffChanged' }
+      staffRoleChanged: { $ref: '#/components/messages/StaffChanged' }
+      sessionRevoked: { $ref: '#/components/messages/SessionRevoked' }
+      supportSessionOpened: { $ref: '#/components/messages/SupportSessionChanged' }
+      supportSessionClosed: { $ref: '#/components/messages/SupportSessionChanged' }
+      platformAdminCreated: { $ref: '#/components/messages/PlatformAdminChanged' }
+      platformAdminDeactivated: { $ref: '#/components/messages/PlatformAdminChanged' }
+  otpSend:
+    address: identity.otp.send
+    description: Fila interna de envio de SMS (worker → SmsProvider). DLQ identity.otp.send.dlq.
+    messages:
+      otpSendRequested: { $ref: '#/components/messages/OtpSendRequested' }
+operations:
+  publishIdentityEvents:
+    action: send
+    channel: { $ref: '#/channels/identityEvents' }
+  sendOtp:
+    action: receive
+    channel: { $ref: '#/channels/otpSend' }
+components:
+  messages:
+    ConsumerChanged:
+      name: identity.consumer.changed
+      summary: event_type ∈ identity.consumer.{pre_registered,registered,profile_completed,phone_changed,deactivated}.v1
+      payload:
+        type: object
+        required: [event_id, event_type, occurred_at, correlation_id, data]
+        properties:
+          event_id: { type: string, format: uuid }
+          event_type: { type: string }
+          tenant_id: { type: 'null' }
+          occurred_at: { type: string, format: date-time }
+          correlation_id: { type: string, format: uuid }
+          data:
+            type: object
+            required: [consumer_id]
+            properties:
+              consumer_id: { type: string, format: uuid }
+              profile_stage: { type: integer, enum: [1, 2] }
+              via_slug: { type: [string, 'null'], description: Estabelecimento de origem do cadastro (atribuição J1) }
+    StaffChanged:
+      name: identity.staff.changed
+      summary: event_type ∈ identity.staff.{invited,joined,removed,role_changed}.v1
+      payload:
+        type: object
+        required: [event_id, event_type, tenant_id, occurred_at, correlation_id, data]
+        properties:
+          event_id: { type: string, format: uuid }
+          event_type: { type: string }
+          tenant_id: { type: string, format: uuid }
+          occurred_at: { type: string, format: date-time }
+          correlation_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              membership_id: { type: string, format: uuid }
+              person_id: { type: string, format: uuid }
+              role: { type: string, enum: [owner, manager, receptionist, professional] }
+              branch_ids: { type: array, items: { type: string, format: uuid } }
+              grants: { type: array, items: { type: string } }
+              version: { type: integer, description: Invalida o cache de autorização }
+    SessionRevoked:
+      name: identity.session.revoked.v1
+      payload:
+        type: object
+        required: [event_id, event_type, occurred_at, data]
+        properties:
+          event_id: { type: string, format: uuid }
+          event_type: { const: identity.session.revoked.v1 }
+          tenant_id: { type: [string, 'null'], format: uuid }
+          occurred_at: { type: string, format: date-time }
+          data:
+            type: object
+            required: [session_ids, reason]
+            properties:
+              session_ids: { type: array, items: { type: string, format: uuid } }
+              reason: { type: string, enum: [user, owner, role_removed, account_deactivated, reuse_detected, account_deleted] }
+    SupportSessionChanged:
+      name: identity.support_session.changed
+      summary: event_type ∈ identity.support_session.{opened,closed}.v1
+      payload:
+        type: object
+        required: [event_id, event_type, tenant_id, occurred_at, data]
+        properties:
+          event_id: { type: string, format: uuid }
+          event_type: { type: string }
+          tenant_id: { type: string, format: uuid }
+          occurred_at: { type: string, format: date-time }
+          data:
+            type: object
+            properties:
+              support_session_id: { type: string, format: uuid }
+              agent_account_id: { type: string, format: uuid }
+              expires_at: { type: string, format: date-time }
+              end_reason: { type: [string, 'null'], enum: [expired, agent, tenant, tenant_suspended, null] }
+    PlatformAdminChanged:
+      name: identity.platform_admin.changed
+      summary: event_type ∈ identity.platform_admin.{created,deactivated}.v1
+      payload:
+        type: object
+        required: [event_id, event_type, occurred_at, data]
+        properties:
+          event_id: { type: string, format: uuid }
+          event_type: { type: string }
+          occurred_at: { type: string, format: date-time }
+          data:
+            type: object
+            properties:
+              account_id: { type: string, format: uuid }
+              profile: { type: string, enum: [support, finance_ops, growth, sre] }
+    OtpSendRequested:
+      name: identity.otp.send_requested
+      summary: Interno, não sai do domínio. Carrega o celular cifrado para o worker de envio.
+      payload:
+        type: object
+        required: [challenge_id, phone_ciphertext, code_ciphertext]
+        properties:
+          challenge_id: { type: string, format: uuid }
+          phone_ciphertext: { type: string }
+          code_ciphertext: { type: string }

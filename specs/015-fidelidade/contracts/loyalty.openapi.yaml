@@ -1,0 +1,164 @@
+openapi: 3.1.0
+info:
+  title: Koovela Loyalty — programa, pontos, tiers e resgates
+  version: 1.0.0
+  description: Spec 015. x-koovela-action em toda operação; Idempotency-Key em resgates e ajustes.
+servers:
+  - url: https://api.koovela.com
+  - url: http://core.internal:8080
+paths:
+  /v1/tenant/loyalty/program:
+    get:
+      operationId: getProgram
+      x-koovela-action: loyalty.read
+      parameters: [ { name: business_id, in: query, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Versão vigente, tiers, catálogo, uso do teto }
+    put:
+      operationId: saveProgramDraft
+      x-koovela-action: loyalty.configure
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProgramInput' }
+      responses:
+        '200': { description: Rascunho salvo; exige simulação antes de publicar }
+  /v1/tenant/loyalty/program/simulate:
+    post:
+      operationId: simulateProgram
+      x-koovela-action: loyalty.configure
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                program: { $ref: '#/components/schemas/ProgramInput' }
+                assumed_redemption_rate_pct: { type: integer, minimum: 0, maximum: 100 }
+      responses:
+        '200': { description: Estimativas com base nos últimos 6 meses (emitidos, custo, em aberto, receita para empatar) }
+  /v1/tenant/loyalty/program/publish:
+    post:
+      operationId: publishProgram
+      x-koovela-action: loyalty.configure
+      responses:
+        '200': { description: Nova versão ativa (exige simulação da mesma configuração; auditada) }
+        '409': { description: loyalty.simulation_required, loyalty.exceeds_platform_limits, loyalty.cash_reward_in_health }
+  /v1/tenant/loyalty/program/disable:
+    post:
+      operationId: disableProgram
+      x-koovela-action: loyalty.configure
+      responses:
+        '200': { description: Acúmulo para; resgate mantido por 90 dias com aviso }
+  /v1/tenant/loyalty/results:
+    get:
+      operationId: getResults
+      x-koovela-action: loyalty.results.read
+      parameters:
+        - { name: month, in: query, required: true, schema: { type: string } }
+        - { name: branch_id, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Emitidos, resgatados, expirados, custo, em aberto, ativos, teto, custo/receita incremental + método }
+  /v1/tenant/loyalty/accounts/{account_id}/adjust:
+    post:
+      operationId: adjustPoints
+      x-koovela-action: loyalty.adjust
+      parameters:
+        - { name: account_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [points, reason]
+              properties:
+                points: { type: integer }
+                reason: { type: string, minLength: 5 }
+      responses:
+        '200': { description: Ajuste lançado (step-up acima de 1.000 pontos; auditado) }
+  /v1/tenant/appointments/{appointment_id}/redemptions:
+    post:
+      operationId: counterRedemption
+      x-koovela-action: loyalty.redeem_at_counter
+      summary: Resgate no balcão; aguarda confirmação no celular do consumidor
+      parameters:
+        - { name: appointment_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [reward_id], properties: { reward_id: { type: string, format: uuid } } }
+      responses:
+        '202': { description: Pedido de confirmação enviado (push ou OTP) }
+  /v1/consumer/loyalty:
+    get:
+      operationId: listMyLoyalty
+      x-koovela-action: consumer.loyalty.read
+      responses:
+        '200': { description: Por negócio — saldo, tier, progresso, a vencer em 30 dias, catálogo, histórico }
+  /v1/consumer/appointments/{appointment_id}/redemptions:
+    post:
+      operationId: redeemOnSummary
+      x-koovela-action: consumer.loyalty.redeem
+      parameters:
+        - { name: appointment_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [reward_id], properties: { reward_id: { type: string, format: uuid } } }
+      responses:
+        '201': { description: Pontos reservados; consumidos na conclusão, devolvidos no cancelamento na política e no no-show }
+        '409': { description: loyalty.insufficient_points, loyalty.catalog_paused, loyalty.tier_required, loyalty.out_of_stock }
+  /v1/consumer/redemption-confirmations/{redemption_id}:
+    post:
+      operationId: confirmCounterRedemption
+      x-koovela-action: consumer.loyalty.confirm_counter
+      parameters: [ { name: redemption_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { approve: { type: boolean }, otp_code: { type: string } } }
+      responses:
+        '200': { description: Resgate no balcão confirmado pelo consumidor }
+components:
+  schemas:
+    ProgramInput:
+      type: object
+      required: [business_id, mechanic, expiry_months, monthly_cost_cap, balance_mode]
+      properties:
+        business_id: { type: string, format: uuid }
+        mechanic: { type: string, enum: [points_per_real, stamps] }
+        rate_tenths_per_real: { type: integer, minimum: 1 }
+        per_visit_bonus_points: { type: integer, minimum: 0 }
+        stamps_per_reward: { type: integer, minimum: 2 }
+        expiry_months: { type: integer, minimum: 1 }
+        monthly_cost_cap: { type: object, properties: { amount_cents: { type: integer }, currency: { type: string } } }
+        balance_mode: { type: string, enum: [business, branch] }
+        allow_on_site_payments: { type: boolean }
+        tiers:
+          type: array
+          maxItems: 4
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              entry_points_12m: { type: integer }
+              multiplier_pct: { type: integer, minimum: 100, maximum: 200 }
+              perk_text: { type: string }
+        rewards:
+          type: array
+          items:
+            type: object
+            properties:
+              kind: { type: string, enum: [free_service, discount_cents, discount_pct, gift] }
+              service_ids: { type: array, items: { type: string, format: uuid } }
+              cost_points: { type: integer }
+              business_value_cents: { type: integer }
+              discount_value: { type: integer }
+              min_tier: { type: integer }
+              monthly_stock: { type: [integer, 'null'] }
+              valid_until: { type: [string, 'null'], format: date }

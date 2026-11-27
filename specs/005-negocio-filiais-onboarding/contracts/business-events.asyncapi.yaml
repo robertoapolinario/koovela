@@ -1,0 +1,141 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Tenancy — eventos de negócio e filial (spec 005)
+  version: 1.0.0
+  description: Outbox do tenancy → tenancy.events. Envelope da spec 001. Sem PII (endereço e telefone não saem em evento).
+defaultContentType: application/json
+channels:
+  tenancyEvents:
+    address: tenancy.events
+    messages:
+      clientOnboarded: { $ref: '#/components/messages/ClientOnboarded' }
+      businessPublished: { $ref: '#/components/messages/BusinessChanged' }
+      businessUnpublished: { $ref: '#/components/messages/BusinessChanged' }
+      businessUpdated: { $ref: '#/components/messages/BusinessChanged' }
+      slugChanged: { $ref: '#/components/messages/SlugChanged' }
+      branchCreated: { $ref: '#/components/messages/BranchChanged' }
+      branchCloned: { $ref: '#/components/messages/BranchCloned' }
+      branchStateChanged: { $ref: '#/components/messages/BranchChanged' }
+      branchHoursChanged: { $ref: '#/components/messages/BranchHoursChanged' }
+      termsAccepted: { $ref: '#/components/messages/TermsAccepted' }
+  consumed:
+    address: catalog.events / workforce.events
+    description: >
+      Consumidos para a prontidão de publicação — catalog.service.published.v1 (006) e
+      workforce.professional.availability_set.v1 (007).
+operations:
+  publishTenancyEvents:
+    action: send
+    channel: { $ref: '#/channels/tenancyEvents' }
+components:
+  messages:
+    ClientOnboarded:
+      name: tenancy.client.onboarded.v1
+      summary: Consumido pelo workforce (007) para criar o colaborador da Proprietária no caminho solo
+      payload:
+        type: object
+        required: [event_id, event_type, tenant_id, occurred_at, data]
+        properties:
+          event_id: { type: string, format: uuid }
+          event_type: { const: tenancy.client.onboarded.v1 }
+          tenant_id: { type: string, format: uuid }
+          occurred_at: { type: string, format: date-time }
+          data:
+            type: object
+            required: [path, owner_person_id, business_id]
+            properties:
+              path: { type: string, enum: [solo, network] }
+              owner_person_id: { type: string, format: uuid }
+              business_id: { type: string, format: uuid }
+              branch_id: { type: [string, 'null'], format: uuid }
+              vertical_code: { type: string }
+    BusinessChanged:
+      name: tenancy.business.changed
+      summary: event_type ∈ tenancy.business.{published,unpublished,updated}.v1
+      payload:
+        type: object
+        properties:
+          event_id: { type: string, format: uuid }
+          event_type: { type: string }
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              business_id: { type: string, format: uuid }
+              slug: { type: string }
+              vertical_code: { type: string }
+              price_display: { type: string, enum: [public, never] }
+              state: { type: string, enum: [draft, published, unpublished] }
+    SlugChanged:
+      name: tenancy.slug.changed.v1
+      summary: Atualiza a projeção business_slug e purga caches
+      payload:
+        type: object
+        properties:
+          event_id: { type: string, format: uuid }
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            required: [business_id, old_slug, new_slug, old_state]
+            properties:
+              business_id: { type: string, format: uuid }
+              old_slug: { type: string }
+              new_slug: { type: string }
+              old_state: { type: string, enum: [redirect, blocked] }
+    BranchChanged:
+      name: tenancy.branch.changed
+      summary: event_type ∈ tenancy.branch.{created,state_changed}.v1
+      payload:
+        type: object
+        properties:
+          event_id: { type: string, format: uuid }
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              branch_id: { type: string, format: uuid }
+              business_id: { type: string, format: uuid }
+              state: { type: string, enum: [draft, active, paused, closed] }
+              timezone: { type: string }
+    BranchCloned:
+      name: tenancy.branch.cloned.v1
+      summary: Consumido por catalog (006) para copiar o catálogo disponível (as regras de comissão da 007 são por negócio, sem cópia)
+      payload:
+        type: object
+        properties:
+          event_id: { type: string, format: uuid }
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            required: [source_branch_id, target_branch_id]
+            properties:
+              source_branch_id: { type: string, format: uuid }
+              target_branch_id: { type: string, format: uuid }
+    BranchHoursChanged:
+      name: tenancy.branch.hours_changed.v1
+      summary: Consumido pelo motor de agenda (008) e pelo agendamento (009)
+      payload:
+        type: object
+        properties:
+          event_id: { type: string, format: uuid }
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            required: [branch_id, effective_from]
+            properties:
+              branch_id: { type: string, format: uuid }
+              effective_from: { type: string, format: date }
+              version: { type: integer }
+    TermsAccepted:
+      name: tenancy.terms.accepted.v1
+      payload:
+        type: object
+        properties:
+          event_id: { type: string, format: uuid }
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              document_type: { type: string, enum: [terms, privacy] }
+              version: { type: string }
+              person_id: { type: string, format: uuid }

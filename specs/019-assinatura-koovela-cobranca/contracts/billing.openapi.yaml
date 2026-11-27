@@ -1,0 +1,165 @@
+openapi: 3.1.0
+info:
+  title: Koovela Billing — assinatura, faturas e régua
+  version: 1.0.0
+  description: Spec 019. Schema koovela_platform; tenant resolvido no gateway. x-koovela-action em toda operação.
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/tenant/billing/subscription:
+    get:
+      operationId: getMySubscription
+      x-koovela-action: billing.read
+      responses:
+        '200': { description: Plano, estado, uso do ciclo e estimativa da próxima fatura }
+  /v1/tenant/billing/plans:
+    get:
+      operationId: listAvailablePlans
+      x-koovela-action: billing.read
+      responses:
+        '200': { description: Planos ativos com faixas, taxa, funções, cotas de SMS e WhatsApp e política do autônomo }
+  /v1/tenant/billing/plans/simulate:
+    post:
+      operationId: simulateCost
+      x-koovela-action: billing.read
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { plan_version_id: { type: string, format: uuid }, bookings_per_month: { type: [integer, 'null'], minimum: 0 } } }
+      responses:
+        '200': { description: 'Assinatura + taxas estimadas, com os agendamentos do último mês quando bookings_per_month é nulo' }
+  /v1/tenant/billing/subscription/plan:
+    put:
+      operationId: changePlan
+      x-koovela-action: billing.change_plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [plan_id], properties: { plan_id: { type: string, format: uuid } } }
+      responses:
+        '200': { description: Subida na hora (proporcional na próxima fatura); descida no próximo ciclo }
+        '409': { description: billing.usage_exceeds_target_tier }
+  /v1/tenant/billing/subscription/payment-method:
+    put:
+      operationId: setPaymentMethod
+      x-koovela-action: billing.payment_method
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [method]
+              properties:
+                method: { type: string, enum: [card_recurring, pix_invoice] }
+                card_token: { type: string }
+      responses:
+        '200': { description: Step-up exigido; auditado }
+  /v1/tenant/billing/subscription/cancel:
+    post:
+      operationId: cancelSubscription
+      x-koovela-action: billing.cancel
+      responses:
+        '200': { description: Vale até o fim do ciclo pago; exportação oferecida }
+  /v1/tenant/billing/subscription/reactivate:
+    post:
+      operationId: reactivateSubscription
+      x-koovela-action: billing.reactivate
+      responses:
+        '200': { description: Reativada (em até 90 dias) }
+  /v1/tenant/billing/invoices:
+    get:
+      operationId: listMyInvoices
+      x-koovela-action: billing.read
+      responses:
+        '200': { description: Faturas com estado, nota e comprovante }
+  /v1/tenant/billing/invoices/{invoice_id}:
+    get:
+      operationId: getMyInvoice
+      x-koovela-action: billing.read
+      parameters: [ { name: invoice_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Itens detalhados (taxas por agendamento, informativas do split, SMS, créditos) }
+  /v1/tenant/billing/invoices/{invoice_id}/pay:
+    post:
+      operationId: payInvoiceNow
+      x-koovela-action: billing.pay
+      parameters:
+        - { name: invoice_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { method: { type: string, enum: [card, pix] } } }
+      responses:
+        '201': { description: Cobrança criada (Pix com QR); pagamento reativa em ≤ 5 min }
+  /v1/internal/billing/entitlements/{tenant_id}:
+    get:
+      operationId: getEntitlements
+      x-koovela-action: internal.billing.entitlements.read
+      summary: Contrato para 005, 014, 021, 028 (e REQ-NEG-016)
+      parameters: [ { name: tenant_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state: { type: string }
+                  can_publish: { type: boolean }
+                  plan_version_id: { type: string, format: uuid }
+                  tiers: { type: object, properties: { max_professionals: { type: integer }, max_branches: { type: integer } } }
+                  usage: { type: object, properties: { professionals: { type: integer }, branches: { type: integer } } }
+                  features: { type: array, items: { type: string } }
+                  restrictions: { type: array, items: { type: string, enum: [no_new_invites, no_new_branches, no_feature_activation, no_new_consumer_bookings] } }
+          description: Estado, faixas, funções e restrições vigentes
+  /v1/admin/billing/plans:
+    post:
+      operationId: proposePlanVersion
+      x-koovela-action: admin.billing.plan.propose
+      responses:
+        '201': { description: Proposta (Comercial/Growth) aguardando aprovação do Financeiro/Ops }
+  /v1/admin/billing/plans/{version_id}/approve:
+    post:
+      operationId: approvePlanVersion
+      x-koovela-action: admin.billing.plan.approve
+      parameters: [ { name: version_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Aprovada (aumento com ≥ 30 dias de antecedência; auditado) }
+        '422': { description: billing.increase_notice_too_short }
+  /v1/admin/billing/dunning-policy:
+    put:
+      operationId: publishDunningPolicy
+      x-koovela-action: billing.dunning.configure
+      responses:
+        '200': { description: Nova versão da régua e dos prazos de aviso (Fin/Ops; auditada) }
+  /v1/admin/billing/delinquency:
+    get:
+      operationId: listDelinquency
+      x-koovela-action: admin.billing.read
+      parameters:
+        - { name: min_days, in: query, schema: { type: integer } }
+        - { name: step, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Inadimplência por dias e valor, etapa e histórico (G07) }
+  /v1/admin/billing/subscriptions/{subscription_id}/{action}:
+    post:
+      operationId: dunningAction
+      x-koovela-action: admin.billing.dunning
+      parameters:
+        - { name: subscription_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [pause-dunning, agreement, recharge] } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string }
+                until: { type: string, format: date }
+                agreement_amount_cents: { type: integer }
+      responses:
+        '200': { description: Ação aplicada (auditada) }

@@ -1,0 +1,138 @@
+openapi: 3.1.0
+info:
+  title: Koovela Scheduling — séries recorrentes
+  version: 1.0.0
+  description: Spec 013. Contrato também reaproveitado pelas aulas recorrentes (spec 034, REQ-SER-052).
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/consumer/appointments/{appointment_id}/series:
+    post:
+      operationId: createSeriesFromAppointment
+      x-koovela-action: consumer.series.create
+      parameters:
+        - { name: appointment_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SeriesInput' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Series' }
+          description: Série criada com as 4 primeiras ocorrências (conflitos marcados)
+        '409': { description: series.limit_reached, series.overlap }
+  /v1/consumer/series:
+    get:
+      operationId: listMySeries
+      x-koovela-action: consumer.series.list
+      responses:
+        '200': { description: Minhas séries com regra, próximas ocorrências, conflitos e ações }
+  /v1/tenant/series:
+    get:
+      operationId: listBranchSeries
+      x-koovela-action: scheduling.series.read
+      parameters:
+        - { name: branch_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: state, in: query, schema: { type: string } }
+        - { name: professional_id, in: query, schema: { type: string, format: uuid } }
+        - { name: in_conflict, in: query, schema: { type: boolean } }
+      responses:
+        '200': { description: Gestão de séries (P06) }
+    post:
+      operationId: createSeriesByStaff
+      x-koovela-action: scheduling.series.create
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/SeriesInput'
+                - type: object
+                  required: [appointment_id]
+                  properties:
+                    appointment_id: { type: string, format: uuid }
+      responses:
+        '201': { description: Criada pela equipe }
+  /v1/series/{series_id}/occurrences/{sequence}/{action}:
+    post:
+      operationId: changeOccurrence
+      x-koovela-action: series.occurrence.change
+      summary: Remarcar ou cancelar com alcance explícito (consumidor ou equipe)
+      parameters:
+        - { name: series_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: sequence, in: path, required: true, schema: { type: integer } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [reschedule, cancel, choose-alternative] } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scope]
+              properties:
+                scope: { type: string, enum: [this, this_and_following, whole_series] }
+                start: { type: string, format: date-time }
+                professional_id: { type: string, format: uuid }
+                alternative_index: { type: integer, minimum: 0, maximum: 2 }
+                keep_own_time_occurrences: { type: boolean, default: true }
+                fees_ack: { type: boolean, description: Ciente do total de multas mostrado antes }
+      responses:
+        '200': { description: Aplicada; futuras que não couberem ficam em conflito }
+        '409': { description: series.scope_required, scheduling.slot_taken }
+  /v1/series/{series_id}/{command}:
+    post:
+      operationId: seriesCommand
+      x-koovela-action: series.command
+      parameters:
+        - { name: series_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: command, in: path, required: true, schema: { type: string, enum: [pause, resume, end, transfer-professional, change-payment] } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                until: { type: string, format: date, description: pause (≤ 90 dias) }
+                professional_id: { type: string, format: uuid }
+                from_sequence: { type: integer }
+                payment_mode: { type: string, enum: [deposit_per_occurrence, package, on_site] }
+                package_account_id: { type: string, format: uuid }
+      responses:
+        '200': { description: Comando aplicado e registrado }
+components:
+  schemas:
+    SeriesInput:
+      type: object
+      required: [frequency, ends, payment_mode]
+      properties:
+        frequency: { type: string, enum: [weekly, every_2_weeks, every_3_weeks, every_4_weeks, monthly_by_weekday_position] }
+        month_position: { oneOf: [ { type: integer, minimum: 1, maximum: 4 }, { const: last } ] }
+        ends: { type: string, enum: [after_n, on_date, never] }
+        after_n: { type: integer, minimum: 2, maximum: 52 }
+        on_date: { type: string, format: date }
+        payment_mode: { type: string, enum: [deposit_per_occurrence, package, on_site] }
+        package_account_id: { type: string, format: uuid }
+        authorize_auto_charge: { type: boolean, description: Obrigatório com sinal por ocorrência }
+    Series:
+      type: object
+      required: [series_id, state, occurrences]
+      properties:
+        series_id: { type: string, format: uuid }
+        state: { type: string, enum: [active, paused, paused_for_no_shows, awaiting_payment, ended] }
+        rule: { $ref: '#/components/schemas/SeriesInput' }
+        occurrences:
+          type: array
+          items:
+            type: object
+            properties:
+              sequence: { type: integer }
+              planned_start: { type: string, format: date-time }
+              state: { type: string, enum: [planned, materialized, in_conflict, skipped] }
+              appointment_id: { type: [string, 'null'], format: uuid }
+              alternatives: { type: array, maxItems: 3, items: { type: object, properties: { start: { type: string, format: date-time }, professional_id: { type: string, format: uuid } } } }
+              conflict_deadline: { type: [string, 'null'], format: date-time }

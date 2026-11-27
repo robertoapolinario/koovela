@@ -1,0 +1,132 @@
+openapi: 3.1.0
+info:
+  title: Koovela Payments — vale-presente
+  version: 1.0.0
+  description: Spec 029. x-koovela-action em toda operação; Idempotency-Key em compra, resgate, uso e reembolso.
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/public/businesses/{slug}/gift-cards/options:
+    get:
+      operationId: giftCardOptions
+      x-koovela-action: public.gift_card.options
+      security: []
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: branch_id, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Valores, itens presenteáveis, artes e validade (sem preço em saúde) }
+  /v1/consumer/gift-cards:
+    post:
+      operationId: buyGiftCard
+      x-koovela-action: consumer.gift_card.buy
+      parameters: [ { name: Idempotency-Key, in: header, required: true, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [branch_id, kind, recipient_name, delivery_channel, payment_method]
+              properties:
+                branch_id: { type: string, format: uuid }
+                kind: { type: string, enum: [amount, service, combo, package] }
+                amount_cents: { type: integer }
+                item_id: { type: string, format: uuid }
+                recipient_name: { type: string }
+                recipient_phone: { type: string }
+                recipient_email: { type: string, format: email }
+                message: { type: string, maxLength: 300 }
+                art_id: { type: string }
+                delivery_channel: { type: string, enum: [sms, email, code_only] }
+                deliver_at: { type: [string, 'null'], format: date-time }
+                payment_method: { type: string, enum: [pix, card] }
+      responses:
+        '201': { description: Pagamento criado pela 012 (split para a filial); venda como adiantamento }
+    get:
+      operationId: listMyGiftCards
+      x-koovela-action: consumer.gift_card.list
+      responses:
+        '200': { description: Comprados e recebidos (carteira) }
+  /v1/consumer/gift-cards/{gift_card_id}/resend:
+    post:
+      operationId: resendGiftCard
+      x-koovela-action: consumer.gift_card.resend
+      parameters: [ { name: gift_card_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Reenviado a outro destinatário (uma vez, antes do resgate) }
+        '409': { description: gift_card.already_resent, gift_card.already_redeemed }
+  /v1/consumer/gift-cards/{gift_card_id}/refund:
+    post:
+      operationId: refundGiftCard
+      x-koovela-action: consumer.gift_card.refund
+      parameters: [ { name: gift_card_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Reembolso integral pelo mesmo meio (sem uso, até 7 dias) }
+        '409': { description: gift_card.refund_window_closed, gift_card.already_used }
+  /v1/consumer/gift-cards/redeem:
+    post:
+      operationId: redeemGiftCard
+      x-koovela-action: consumer.gift_card.redeem
+      parameters: [ { name: Idempotency-Key, in: header, required: true, schema: { type: string } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { code: { type: string }, link_token: { type: string } } }
+      responses:
+        '200': { description: Vale na carteira; vale de pacote vira pacote do presenteado }
+        '404': { description: gift_card.invalid_code }
+        '429': { description: gift_card.too_many_attempts }
+  /v1/consumer/appointments/{appointment_id}/gift-card:
+    post:
+      operationId: applyGiftCard
+      x-koovela-action: consumer.gift_card.apply
+      parameters:
+        - { name: appointment_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [gift_card_id], properties: { gift_card_id: { type: string, format: uuid } } }
+      responses:
+        '200': { description: Abatimento reservado (depois de oferta e fidelidade); consumo na conclusão }
+        '409': { description: gift_card.wrong_branch, gift_card.expired, payments.insufficient_balance }
+  /v1/tenant/gift-cards:
+    get:
+      operationId: listBranchGiftCards
+      x-koovela-action: gift_card.read
+      parameters: [ { name: branch_id, in: query, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Lista e totais do mês }
+    post:
+      operationId: sellAtCounter
+      x-koovela-action: gift_card.sell
+      parameters: [ { name: Idempotency-Key, in: header, required: true, schema: { type: string } } ]
+      responses:
+        '201': { description: Venda no balcão }
+  /v1/tenant/appointments/{appointment_id}/gift-card:
+    post:
+      operationId: applyAtCounter
+      x-koovela-action: gift_card.apply_at_counter
+      parameters: [ { name: appointment_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '202': { description: Aguarda confirmação no celular do presenteado }
+  /v1/tenant/gift-cards/{gift_card_id}/{action}:
+    post:
+      operationId: businessGiftCardAction
+      x-koovela-action: gift_card.manage
+      parameters:
+        - { name: gift_card_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [refund, cancel] } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [reason], properties: { reason: { type: string } } }
+      responses:
+        '200': { description: Decisão do estabelecimento, auditada }
+  /v1/tenant/gift-cards/settings:
+    put:
+      operationId: setGiftCardSettings
+      x-koovela-action: gift_card.configure
+      responses:
+        '200': { description: Configuração por filial (validade ≥ 6 meses) }

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.koovela.com/schemas/audit-record.v1.json",
+  "title": "Registro de auditoria (outbox de cada domínio → trilha central)",
+  "description": "REQ-AUD-002. Nunca contém conteúdo de negócio (anotação, dados bancários, CPF), nome, e-mail ou celular.",
+  "type": "object",
+  "required": ["audit_id", "occurred_at", "category", "action", "result", "actor", "request_id", "correlation_id", "source_domain"],
+  "additionalProperties": false,
+  "properties": {
+    "audit_id": { "type": "string", "format": "uuid" },
+    "idempotency_key": { "type": ["string", "null"], "maxLength": 128 },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "category": { "enum": ["management", "financial", "support", "tenant_admin", "audit_access"] },
+    "action": { "type": "string", "pattern": "^[a-z_]+(\\.[a-z_]+)+$" },
+    "result": { "enum": ["allowed", "denied"] },
+    "actor": {
+      "type": "object",
+      "required": ["id", "profile"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "profile": { "enum": ["owner", "manager", "receptionist", "professional", "support", "finance_ops", "growth", "sre", "system"] }
+      }
+    },
+    "tenant_id": { "type": ["string", "null"], "format": "uuid" },
+    "support_session_id": { "type": ["string", "null"], "format": "uuid" },
+    "target": {
+      "type": ["object", "null"],
+      "properties": {
+        "type": { "type": "string" },
+        "id": { "type": "string" }
+      }
+    },
+    "justification": { "type": ["string", "null"], "maxLength": 500 },
+    "ip": { "type": ["string", "null"] },
+    "request_id": { "type": "string", "format": "uuid" },
+    "correlation_id": { "type": "string", "format": "uuid" },
+    "source_domain": { "type": "string" },
+    "details": { "type": "object", "description": "Sem dado de negócio; ex.: { from_version, to_version } de uma flag" }
+  }
+}

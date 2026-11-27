@@ -1,0 +1,260 @@
+openapi: 3.1.0
+info:
+  title: Koovela Catalog — serviços, combos e pacotes
+  version: 1.0.0
+  description: >
+    Spec 006. x-koovela-action em toda operação. Dinheiro sempre {amount_cents, currency}.
+    Em negócios com price_display=never (saúde), respostas públicas não trazem campos de preço.
+servers:
+  - url: https://api.koovela.com
+  - url: http://core.internal:8080
+    description: Rotas /v1/internal (consumidas por 007, 008, 009, 012, 017)
+paths:
+  /v1/tenant/catalog/services:
+    get:
+      operationId: listServices
+      x-koovela-action: catalog.read
+      parameters:
+        - { name: branch_id, in: query, schema: { type: string, format: uuid } }
+        - { name: state, in: query, schema: { type: string, enum: [active, inactive, archived] } }
+      responses:
+        '200': { description: Serviços com versão vigente e disponibilidade por filial }
+    post:
+      operationId: createService
+      x-koovela-action: catalog.service.create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceInput' }
+      responses:
+        '201': { description: Serviço + versão 1 }
+  /v1/tenant/catalog/services/{service_id}:
+    patch:
+      operationId: updateService
+      x-koovela-action: catalog.service.update
+      parameters: [ { $ref: '#/components/parameters/ServiceId' } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/ServiceInput'
+                - type: object
+                  properties:
+                    valid_from: { type: string, format: date-time, description: Ausente = imediato }
+      responses:
+        '200': { description: Nova versão quando muda preço, duração, preparo ou limpeza }
+    delete:
+      operationId: deleteService
+      x-koovela-action: catalog.service.delete
+      parameters: [ { $ref: '#/components/parameters/ServiceId' } ]
+      responses:
+        '204': { description: Apagado (nunca usado) }
+        '409': { description: catalog.service_in_use — só arquivar }
+  /v1/tenant/catalog/services/{service_id}/branches/{branch_id}:
+    put:
+      operationId: setBranchAvailability
+      x-koovela-action: catalog.branch_price.update
+      parameters: [ { $ref: '#/components/parameters/ServiceId' }, { $ref: '#/components/parameters/BranchId' } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                available: { type: boolean }
+                price: { oneOf: [ { $ref: '#/components/schemas/Money' }, { type: 'null' } ] }
+                valid_from: { type: string, format: date-time }
+      responses:
+        '200': { description: Disponibilidade e preço próprio (Gerente só da própria filial) }
+  /v1/tenant/catalog/services/{service_id}/versions:
+    get:
+      operationId: listServiceVersions
+      x-koovela-action: catalog.read
+      parameters: [ { $ref: '#/components/parameters/ServiceId' } ]
+      responses:
+        '200': { description: Histórico com autor e vigência }
+  /v1/tenant/catalog/combos:
+    post:
+      operationId: createCombo
+      x-koovela-action: catalog.combo.create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ComboInput' }
+      responses:
+        '201': { description: Combo com rateio do desconto por etapa }
+        '422': { description: catalog.combo_price_above_sum, catalog.combo_steps_out_of_range }
+  /v1/tenant/catalog/packages:
+    post:
+      operationId: createPackage
+      x-koovela-action: catalog.package.create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PackageInput' }
+      responses:
+        '201': { description: Pacote (em saúde, sell_channel forçado on_site_only) }
+  /v1/tenant/catalog/suggestions:
+    get:
+      operationId: listSuggestions
+      x-koovela-action: catalog.read
+      responses:
+        '200': { description: Sugestões da vertical do negócio (sem preço) }
+  /v1/public/businesses/{slug}/catalog:
+    get:
+      operationId: getPublicCatalog
+      x-koovela-action: public.catalog.read
+      security: []
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: branch_id, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicCatalog' }
+          description: Itens públicos disponíveis na filial
+  /v1/internal/catalog/services/{service_id}/version:
+    get:
+      operationId: getServiceVersionAt
+      x-koovela-action: internal.catalog.version.read
+      parameters:
+        - { $ref: '#/components/parameters/ServiceId' }
+        - { name: branch_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: at, in: query, required: true, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResolvedServiceVersion' }
+          description: Versão vigente em `at` com preço efetivo da filial (para congelar)
+  /v1/internal/catalog/versions/{version_id}:
+    get:
+      operationId: getVersionById
+      x-koovela-action: internal.catalog.version.read
+      parameters: [ { name: version_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Qualquer versão (serviço, combo, pacote) pelo identificador }
+  /v1/internal/catalog/combos/{combo_id}/plan:
+    get:
+      operationId: getComboPlan
+      x-koovela-action: internal.catalog.version.read
+      parameters:
+        - { name: combo_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: branch_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: at, in: query, required: true, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComboPlan' }
+          description: Etapas ordenadas para o motor de agenda (008)
+components:
+  parameters:
+    ServiceId: { name: service_id, in: path, required: true, schema: { type: string, format: uuid } }
+    BranchId: { name: branch_id, in: path, required: true, schema: { type: string, format: uuid } }
+  schemas:
+    Money:
+      type: object
+      required: [amount_cents, currency]
+      properties:
+        amount_cents: { type: integer, minimum: 0 }
+        currency: { type: string, const: BRL }
+    ServiceInput:
+      type: object
+      properties:
+        name: { type: string, maxLength: 80 }
+        description: { type: string, maxLength: 1000 }
+        group_id: { type: string, format: uuid }
+        visibility: { type: string, enum: [public, internal] }
+        duration_min: { type: integer, minimum: 5, maximum: 720, multipleOf: 5 }
+        prep_min: { type: integer, minimum: 0, maximum: 120 }
+        cleanup_min: { type: integer, minimum: 0, maximum: 120 }
+        price_kind: { type: string, enum: [fixed, from] }
+        price: { $ref: '#/components/schemas/Money' }
+        all_branches: { type: boolean }
+        branch_ids: { type: array, items: { type: string, format: uuid } }
+    ComboInput:
+      type: object
+      required: [name, steps, price]
+      properties:
+        name: { type: string }
+        steps: { type: array, minItems: 2, maxItems: 5, items: { type: string, format: uuid } }
+        gap_min: { type: integer, minimum: 0, maximum: 15 }
+        price: { $ref: '#/components/schemas/Money' }
+    PackageInput:
+      type: object
+      required: [name, item_kind, item_id, sessions, price, validity_days, scope, refund_rule]
+      properties:
+        name: { type: string }
+        item_kind: { type: string, enum: [service, combo] }
+        item_id: { type: string, format: uuid }
+        sessions: { type: integer, minimum: 2, maximum: 50 }
+        price: { $ref: '#/components/schemas/Money' }
+        validity_days: { type: integer, minimum: 30, maximum: 730 }
+        scope: { type: string, enum: [purchase_branch, all_branches] }
+        refund_rule: { type: string, enum: [none, proportional_unused, proportional_minus_fee] }
+        refund_fee: { $ref: '#/components/schemas/Money' }
+    ResolvedServiceVersion:
+      type: object
+      required: [service_id, service_version_id, duration_min, prep_min, cleanup_min, price_kind, price]
+      properties:
+        service_id: { type: string, format: uuid }
+        service_version_id: { type: string, format: uuid }
+        branch_price_version_id: { type: [string, 'null'], format: uuid }
+        duration_min: { type: integer }
+        prep_min: { type: integer }
+        cleanup_min: { type: integer }
+        price_kind: { type: string, enum: [fixed, from] }
+        price: { $ref: '#/components/schemas/Money' }
+    ComboPlan:
+      type: object
+      required: [combo_version_id, professional_rule, steps, price]
+      properties:
+        combo_version_id: { type: string, format: uuid }
+        professional_rule: { type: string, enum: [same_for_all, per_step] }
+        gap_min: { type: integer }
+        price: { $ref: '#/components/schemas/Money' }
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              position: { type: integer }
+              service_version_id: { type: string, format: uuid }
+              duration_min: { type: integer }
+              prep_min: { type: integer, description: Só a 1ª etapa > 0 }
+              cleanup_min: { type: integer, description: Só a última etapa > 0 }
+              discount_share: { $ref: '#/components/schemas/Money' }
+    PublicCatalog:
+      type: object
+      required: [price_display, groups]
+      properties:
+        price_display: { type: string, enum: [public, never] }
+        groups:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              items:
+                type: array
+                items:
+                  type: object
+                  required: [kind, id, name, duration_min]
+                  properties:
+                    kind: { type: string, enum: [service, combo, package] }
+                    id: { type: string, format: uuid }
+                    name: { type: string }
+                    duration_min: { type: integer }
+                    price: { $ref: '#/components/schemas/Money', description: Ausente quando price_display=never }
+                    price_kind: { type: string, enum: [fixed, from] }
+                    savings: { $ref: '#/components/schemas/Money' }
+                    photos: { type: array, items: { type: string } }
+                    sessions: { type: integer }
+                    validity_days: { type: integer }
+                    sell_online: { type: boolean }

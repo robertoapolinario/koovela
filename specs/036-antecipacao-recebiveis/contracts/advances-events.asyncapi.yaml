@@ -1,0 +1,62 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Finance — eventos de antecipação (spec 036)
+  version: 1.0.0
+  description: >
+    Outbox, idempotentes por advance_id + estado. Sem dados bancários nem documentos.
+    Consome: payments.refund.*, payments.chargeback.* e payments.payee.bank_account_changed (012),
+    settlement.statement.approved (018), billing.subscription.changed (019).
+    Consumidores: notifications (011), settlement (018: advanced_cents), bi (023), back-office (021).
+defaultContentType: application/json
+channels:
+  financeEvents:
+    address: finance.events
+    messages:
+      advance: { $ref: '#/components/messages/AdvanceLifecycle' }
+      clawback: { $ref: '#/components/messages/ClawbackApplied' }
+      debt: { $ref: '#/components/messages/DebtLifecycle' }
+      mismatch: { $ref: '#/components/messages/ReconciliationMismatch' }
+operations:
+  publishFinance:
+    action: send
+    channel: { $ref: '#/channels/financeEvents' }
+components:
+  messages:
+    AdvanceLifecycle:
+      name: finance.advance.{requested|approved|credited|declined}.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data:
+            type: object
+            properties:
+              advance_id: { type: string, format: uuid }
+              payee_id: { type: string, format: uuid }
+              requester_kind: { type: string, enum: [business, professional] }
+              statement_id: { type: [string, 'null'], format: uuid }
+              gross_cents: { type: integer }
+              koovela_fee_cents: { type: integer }
+              net_cents: { type: integer }
+              decline_reason: { type: [string, 'null'] }
+    ClawbackApplied:
+      name: finance.advance.clawback_applied.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data: { type: object, properties: { clawback_id: { type: string, format: uuid }, advance_id: { type: string, format: uuid }, origin_kind: { type: string, enum: [refund, chargeback] }, amount_cents: { type: integer }, applied_cents: { type: integer } } }
+    DebtLifecycle:
+      name: finance.advance.{debt_opened|debt_settled}.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data: { type: object, properties: { debt_id: { type: string, format: uuid }, payee_id: { type: string, format: uuid }, amount_cents: { type: integer }, settled_cents: { type: integer } } }
+    ReconciliationMismatch:
+      name: finance.advance.reconciliation_mismatch.v1
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: [string, 'null'], format: uuid }
+          data: { type: object, properties: { issue_id: { type: string, format: uuid }, date: { type: string, format: date }, kind: { type: string }, delta_cents: { type: integer } } }

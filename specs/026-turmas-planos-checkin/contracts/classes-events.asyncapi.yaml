@@ -1,0 +1,39 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela — eventos de turmas e planos (spec 026)
+  version: 1.0.0
+  description: >
+    scheduling.events (aulas, inscrições) e payments.events (assinaturas do aluno). Consumidos por 009 (Meus agendamentos),
+    011 (avisos), 012 (saldos), 017 (nota), 018 (comissão), 023 (BI). Consome billing.subscription.suspended.v1 (019).
+defaultContentType: application/json
+channels:
+  schedulingEvents:
+    address: scheduling.events
+    messages:
+      classSessionChanged: { $ref: '#/components/messages/ClassSessionChanged' }
+      enrollmentChanged: { $ref: '#/components/messages/EnrollmentChanged' }
+  paymentsEvents:
+    address: payments.events
+    messages:
+      membershipChanged: { $ref: '#/components/messages/MembershipChanged' }
+operations:
+  publishClassEvents:
+    action: send
+    channel: { $ref: '#/channels/schedulingEvents' }
+  publishMembershipEvents:
+    action: send
+    channel: { $ref: '#/channels/paymentsEvents' }
+components:
+  messages:
+    ClassSessionChanged:
+      name: scheduling.class_session.changed
+      summary: event_type ∈ scheduling.class_session.{generated,cancelled,instructor_changed,finished}.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { session_id: { type: string, format: uuid }, group_id: { type: string, format: uuid }, instructor_id: { type: string, format: uuid }, starts_at: { type: string, format: date-time }, enrolled: { type: integer }, present: { type: integer } } } } }
+    EnrollmentChanged:
+      name: scheduling.class_enrollment.changed
+      summary: event_type ∈ scheduling.class_enrollment.{enrolled,present,no_show,cancelled}.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { enrollment_id: { type: string, format: uuid }, session_id: { type: string, format: uuid }, subject_id: { type: string, format: uuid }, payer_consumer_id: { type: string, format: uuid }, pay_mode: { type: string }, cancel_kind: { type: [string, 'null'] } } } } }
+    MembershipChanged:
+      name: payments.membership.changed
+      summary: event_type ∈ payments.membership.{subscribed,charged,past_due,suspended,reactivated,cancel_scheduled,ended,paused,price_change_notified}.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { membership_id: { type: string, format: uuid }, consumer_id: { type: string, format: uuid }, plan_version_id: { type: string, format: uuid }, state: { type: string }, amount_cents: { type: [integer, 'null'] } } } } }

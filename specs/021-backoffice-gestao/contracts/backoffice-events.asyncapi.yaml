@@ -1,0 +1,56 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Back-office — eventos (spec 021)
+  version: 1.0.0
+  description: >
+    Outbox do backoffice → backoffice.events. Consome sinais de identity (003), scheduling (008, 009), payments (012),
+    loyalty (015), engagement (016) para o motor de antifraude. Comanda ações nas specs donas (002, 012, 015, 016, 019).
+defaultContentType: application/json
+channels:
+  backofficeEvents:
+    address: backoffice.events
+    messages:
+      grantChanged: { $ref: '#/components/messages/GrantChanged' }
+      alertChanged: { $ref: '#/components/messages/AlertChanged' }
+      actionTaken: { $ref: '#/components/messages/ActionTaken' }
+      consumerBlockChanged: { $ref: '#/components/messages/ConsumerBlockChanged' }
+      defenseSubmitted: { $ref: '#/components/messages/DefenseSubmitted' }
+      personalDataRevealed: { $ref: '#/components/messages/PersonalDataRevealed' }
+      tenantRequestChanged: { $ref: '#/components/messages/TenantRequestChanged' }
+operations:
+  publishBackofficeEvents:
+    action: send
+    channel: { $ref: '#/channels/backofficeEvents' }
+components:
+  messages:
+    GrantChanged:
+      name: backoffice.grant.changed
+      summary: event_type ∈ backoffice.grant.{requested,activated,ending_soon,ended,cancelled}.v1 — activated é aplicado pela 019
+      payload:
+        type: object
+        properties:
+          tenant_id: { type: string, format: uuid }
+          data: { type: object, properties: { grant_id: { type: string, format: uuid }, kind: { type: string }, value: { type: integer }, ends_at: { type: string, format: date-time } } }
+    AlertChanged:
+      name: backoffice.fraud_alert.changed
+      summary: event_type ∈ backoffice.fraud_alert.{opened,escalated,closed}.v1 — escalated quando a retenção de 72 h vence
+      payload: { type: object, properties: { data: { type: object, properties: { alert_id: { type: string, format: uuid }, severity: { type: string }, target_kind: { type: string }, target_id: { type: string, format: uuid }, tenant_id: { type: [string, 'null'], format: uuid } } } } }
+    ActionTaken:
+      name: backoffice.fraud_action.changed
+      summary: event_type ∈ backoffice.fraud_action.{applied,expired,reverted}.v1 — consumido pela spec dona para executar
+      payload: { type: object, properties: { data: { type: object, properties: { action_id: { type: string, format: uuid }, kind: { type: string }, target_kind: { type: string }, target_id: { type: string, format: uuid }, tenant_id: { type: [string, 'null'], format: uuid }, expires_at: { type: [string, 'null'], format: date-time } } } } }
+    ConsumerBlockChanged:
+      name: backoffice.consumer_block.changed
+      summary: event_type ∈ backoffice.consumer_block.{blocked,review_requested,kept,unblocked}.v1 — identity (003) aplica o bloqueio
+      payload: { type: object, properties: { data: { type: object, properties: { block_id: { type: string, format: uuid }, consumer_id: { type: string, format: uuid }, state: { type: string } } } } }
+    DefenseSubmitted:
+      name: backoffice.chargeback.defense_submitted.v1
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { chargeback_id: { type: string, format: uuid }, sent_at: { type: string, format: date-time } } } } }
+    PersonalDataRevealed:
+      name: backoffice.personal_data.revealed.v1
+      summary: Só ids e o nome do campo; nunca o valor
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { reveal_id: { type: string, format: uuid }, actor_id: { type: string, format: uuid }, field_ref: { type: string } } } } }
+    TenantRequestChanged:
+      name: backoffice.tenant_request.changed
+      summary: event_type ∈ backoffice.tenant_request.{document_requested,payee_blocked,payee_unblocked,chargeback_complement_requested}.v1 — a 011 avisa o Proprietário
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { request_id: { type: string, format: uuid }, due_at: { type: [string, 'null'], format: date-time } } } } }

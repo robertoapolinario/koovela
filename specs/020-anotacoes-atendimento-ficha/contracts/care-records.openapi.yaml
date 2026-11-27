@@ -1,0 +1,199 @@
+openapi: 3.1.0
+info:
+  title: Koovela Engagement — anotações de atendimento, alertas e ficha
+  version: 1.0.0
+  description: >
+    Spec 020. x-koovela-action em toda operação; cada célula testada na matriz, inclusive em sessão de suporte.
+    Respostas com conteúdo de anotação ou alerta têm Cache-Control no-store.
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/consumer/care-consents:
+    get:
+      operationId: listMyCareConsents
+      x-koovela-action: consumer.care_consent.read
+      responses:
+        '200': { description: Pedidos e consentimentos por negócio }
+  /v1/consumer/care-consents/{business_id}:
+    put:
+      operationId: decideCareConsent
+      x-koovela-action: consumer.care_consent.decide
+      parameters: [ { name: business_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, text_version]
+              properties:
+                decision: { type: string, enum: [grant, refuse, revoke] }
+                text_version: { type: string }
+      responses:
+        '200': { description: Registrado com aparelho, IP e horário; revogação avisa o estabelecimento }
+  /v1/consumer/care-notes:
+    get:
+      operationId: listMyCareNotes
+      x-koovela-action: consumer.care_note.read
+      parameters: [ { name: business_id, in: query, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Anotações sobre mim, com adendos (leitura auditada) }
+  /v1/tenant/care/consent-requests:
+    post:
+      operationId: requestCareConsent
+      x-koovela-action: care.consent.request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [consumer_id, channel]
+              properties:
+                consumer_id: { type: string, format: uuid }
+                channel: { type: string, enum: [notice_link, counter_otp] }
+      responses:
+        '202': { description: Pedido enviado ao celular do consumidor (link ou OTP) }
+  /v1/tenant/care/consent-requests/{request_id}/otp:
+    post:
+      operationId: confirmCounterOtp
+      x-koovela-action: care.consent.request
+      parameters: [ { name: request_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [code], properties: { code: { type: string } } }
+      responses:
+        '200': { description: Consentimento dado pelo consumidor (código recebido no celular dele) }
+  /v1/tenant/appointments/{appointment_id}/care-notes:
+    post:
+      operationId: createCareNote
+      x-koovela-action: care_note.write
+      parameters:
+        - { name: appointment_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string, maxLength: 5000 }
+                template_id: { type: string, format: uuid }
+                photo_upload_ids: { type: array, maxItems: 5, items: { type: string, format: uuid } }
+      responses:
+        '201': { description: Salva (editável por 24 h) }
+        '403': { description: care.consent_required, care.not_appointment_professional, care.notes_disabled }
+        '409': { description: care.window_closed }
+  /v1/tenant/care-notes/{note_id}:
+    patch:
+      operationId: editCareNote
+      x-koovela-action: care_note.write
+      parameters: [ { name: note_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { body: { type: string, maxLength: 5000 } } }
+      responses:
+        '200': { description: Nova versão (até 24 h) }
+        '409': { description: care.note_closed }
+  /v1/tenant/care-notes/{note_id}/addenda:
+    post:
+      operationId: addAddendum
+      x-koovela-action: care_note.write
+      parameters: [ { name: note_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [body], properties: { body: { type: string, maxLength: 5000 } } }
+      responses:
+        '201': { description: Adendo com data e autor; original preservado }
+  /v1/tenant/consumers/{consumer_id}/care-notes:
+    get:
+      operationId: listConsumerCareNotes
+      x-koovela-action: care_note.read
+      summary: Autor vê as próprias; profissionais que atendem o cliente e Proprietário veem todas; Gerente só com liberação
+      parameters: [ { name: consumer_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Anotações permitidas ao papel (cada leitura auditada) }
+        '403': { description: care.read_forbidden }
+  /v1/tenant/consumers/{consumer_id}/care-alerts:
+    get:
+      operationId: listCareAlerts
+      x-koovela-action: care_alert.read
+      parameters: [ { name: consumer_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Conteúdo para profissionais com agendamento; Recepção recebe só has_active_alert }
+    post:
+      operationId: createCareAlert
+      x-koovela-action: care_alert.write
+      parameters: [ { name: consumer_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [body], properties: { body: { type: string, maxLength: 140 } } }
+      responses:
+        '201': { description: Alerta ativo }
+        '403': { description: care.consent_required }
+  /v1/tenant/care-alerts/{alert_id}/deactivate:
+    post:
+      operationId: deactivateCareAlert
+      x-koovela-action: care_alert.deactivate
+      parameters: [ { name: alert_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Desativado (autor ou Proprietário), com histórico }
+  /v1/tenant/consumers:
+    get:
+      operationId: listConsumerBase
+      x-koovela-action: records.base.read
+      parameters:
+        - { name: branch_id, in: query, schema: { type: string, format: uuid } }
+        - { name: q, in: query, schema: { type: string, description: Prefixo do nome ou celular completo } }
+        - { name: last_visit_before, in: query, schema: { type: string, format: date } }
+        - { name: min_visits_12m, in: query, schema: { type: integer } }
+        - { name: tags, in: query, schema: { type: array, items: { type: string } } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Base (P11); gasto omitido para o Gerente sem liberação }
+  /v1/tenant/consumers/{consumer_id}:
+    get:
+      operationId: getConsumerRecord
+      x-koovela-action: records.record.read
+      parameters: [ { name: consumer_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Ficha (contato conforme papel; histórico, faltas, séries, saldos, pontos, avaliações, indicativo de alerta) }
+  /v1/tenant/consumers/{consumer_id}/profile:
+    put:
+      operationId: updateConsumerProfile
+      x-koovela-action: records.profile.update
+      parameters: [ { name: consumer_id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                preferred_name: { type: string }
+                preferred_professional_id: { type: string, format: uuid }
+                operational_note: { type: string, maxLength: 500 }
+                tags: { type: array, items: { type: string } }
+      responses:
+        '200': { description: Salvo }
+  /v1/tenant/consumers/export:
+    post:
+      operationId: exportConsumerBase
+      x-koovela-action: records.base.export
+      responses:
+        '202': { description: Só Proprietário, com step-up; sem anotações nem alertas; auditado }
+  /v1/internal/care/holders/{holder_consumer_id}/{op}:
+    post:
+      operationId: holderDataOperation
+      x-koovela-action: internal.care.holder_data
+      summary: Contratos para a spec 022 (exportação e eliminação)
+      parameters:
+        - { name: holder_consumer_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: op, in: path, required: true, schema: { type: string, enum: [export, erase] } }
+      responses:
+        '202': { description: Operação agendada; resultado por evento }

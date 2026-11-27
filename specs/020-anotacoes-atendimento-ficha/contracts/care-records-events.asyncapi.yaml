@@ -1,0 +1,44 @@
+asyncapi: 3.0.0
+info:
+  title: Koovela Engagement — eventos de anotações e ficha (spec 020)
+  version: 1.0.0
+  description: >
+    Outbox do engagement → engagement.events. NUNCA contêm conteúdo de anotação ou alerta.
+    Consome scheduling.appointment.* (009), payments.* (012), scheduling.series.* (013), loyalty.* (015),
+    engagement.review.* (016), workforce.engagement.ended.v1 (007) para a ficha e as permissões.
+defaultContentType: application/json
+channels:
+  engagementEvents:
+    address: engagement.events
+    messages:
+      consentChanged: { $ref: '#/components/messages/ConsentChanged' }
+      careNoteChanged: { $ref: '#/components/messages/CareNoteChanged' }
+      careAlertChanged: { $ref: '#/components/messages/CareAlertChanged' }
+      customerBaseExported: { $ref: '#/components/messages/CustomerBaseExported' }
+      holderDataDone: { $ref: '#/components/messages/HolderDataDone' }
+operations:
+  publishCareEvents:
+    action: send
+    channel: { $ref: '#/channels/engagementEvents' }
+components:
+  messages:
+    ConsentChanged:
+      name: engagement.care_consent.changed
+      summary: event_type ∈ engagement.care_consent.{requested,granted,refused,revoked}.v1 — revoked avisa o estabelecimento (011)
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { consumer_id: { type: string, format: uuid }, business_id: { type: string, format: uuid }, state: { type: string } } } } }
+    CareNoteChanged:
+      name: engagement.care_note.changed
+      summary: event_type ∈ engagement.care_note.{saved,closed,addendum_added}.v1 — só ids
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { note_id: { type: string, format: uuid }, appointment_id: { type: string, format: uuid }, author_professional_id: { type: string, format: uuid } } } } }
+    CareAlertChanged:
+      name: engagement.care_alert.changed
+      summary: event_type ∈ engagement.care_alert.{activated,deactivated}.v1 — atualiza o indicativo da ficha
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { consumer_id: { type: string, format: uuid }, has_active_alert: { type: boolean } } } } }
+    CustomerBaseExported:
+      name: engagement.customer_base.exported.v1
+      summary: Exportação da base pelo Proprietário — só ids e contagem, nunca dados de consumidores
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { business_id: { type: string, format: uuid }, actor_id: { type: string, format: uuid }, rows: { type: integer } } } } }
+    HolderDataDone:
+      name: engagement.care_holder_data.done.v1
+      summary: Resultado de export/erase para a 022
+      payload: { type: object, properties: { tenant_id: { type: string, format: uuid }, data: { type: object, properties: { holder_consumer_id: { type: string, format: uuid }, op: { type: string }, artifact_ref: { type: [string, 'null'] } } } } }

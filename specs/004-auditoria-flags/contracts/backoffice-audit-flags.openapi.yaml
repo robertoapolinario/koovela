@@ -1,0 +1,169 @@
+openapi: 3.1.0
+info:
+  title: Koovela Backoffice — trilha de auditoria e feature flags
+  version: 1.0.0
+  description: Spec 004. Toda operação declara x-koovela-action (matriz RBAC). Erros Problem Details (spec 001).
+servers:
+  - url: https://api.koovela.com
+paths:
+  /v1/admin/audit/records:
+    get:
+      operationId: searchAudit
+      x-koovela-action: audit.search
+      summary: Pesquisa da tela G10 (recorte por perfil; ≤ 90 dias síncrono)
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: tenant_id, in: query, schema: { type: string, format: uuid } }
+        - { name: actor_id, in: query, schema: { type: string, format: uuid } }
+        - { name: actor_profile, in: query, schema: { type: string } }
+        - { name: action, in: query, schema: { type: string } }
+        - { name: category, in: query, schema: { type: string, enum: [management, financial, support, tenant_admin, audit_access] } }
+        - { name: target_id, in: query, schema: { type: string } }
+        - { name: support_session_id, in: query, schema: { type: string, format: uuid } }
+        - { name: result, in: query, schema: { type: string, enum: [allowed, denied] } }
+        - { name: correlation_id, in: query, schema: { type: string, format: uuid } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditPage' }
+          description: Página ordenada por seq
+        '202': { description: Intervalo acima de 90 dias — consulta assíncrona criada (query_id) }
+  /v1/admin/audit/exports:
+    post:
+      operationId: exportAudit
+      x-koovela-action: audit.export
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filters, justification]
+              properties:
+                filters: { type: object }
+                justification: { type: string, minLength: 10, maxLength: 500 }
+      responses:
+        '202': { description: Exportação em preparo; link assinado (24 h) com CSV + prova de integridade }
+  /v1/admin/audit/seals:
+    get:
+      operationId: listSeals
+      x-koovela-action: audit.seals.read
+      responses:
+        '200': { description: Selos diários com status e URI externa }
+  /v1/tenant/audit/records:
+    get:
+      operationId: searchTenantAudit
+      x-koovela-action: tenant_audit.search
+      summary: Trilha do próprio tenant para o Proprietário (tenant da credencial)
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: actor_id, in: query, schema: { type: string, format: uuid } }
+        - { name: action, in: query, schema: { type: string } }
+        - { name: branch_id, in: query, schema: { type: string, format: uuid } }
+        - { name: support_only, in: query, schema: { type: boolean } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditPage' }
+          description: IP truncado
+  /v1/admin/flags:
+    get:
+      operationId: listFlags
+      x-koovela-action: flag.read
+      responses:
+        '200': { description: Flags com tipo, estado por ambiente, regras, tenants afetados, responsável, remove_by, último uso }
+  /v1/admin/flags/{flag_key}:
+    put:
+      operationId: changeFlag
+      x-koovela-action: flag.change
+      summary: Nova versão da regra (step-up + justificativa em produção; If-Match com a versão)
+      parameters:
+        - { name: flag_key, in: path, required: true, schema: { type: string } }
+        - { name: If-Match, in: header, required: true, schema: { type: string, description: Versão atual } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [environment, config, justification]
+              properties:
+                environment: { type: string, enum: [staging, production] }
+                config: { $ref: '#/components/schemas/FlagConfig' }
+                justification: { type: string, minLength: 10, maxLength: 500 }
+                dry_run: { type: boolean, description: Só devolve quantos tenants seriam afetados }
+      responses:
+        '200': { description: Nova versão; propaga em ≤ 60 s }
+        '409': { description: Versão desatualizada (REQ-FLG-010) }
+  /v1/admin/flags/{flag_key}/revert:
+    post:
+      operationId: revertFlag
+      x-koovela-action: flag.change
+      parameters: [ { name: flag_key, in: path, required: true, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to_version, justification]
+              properties:
+                to_version: { type: integer }
+                justification: { type: string, minLength: 10 }
+      responses:
+        '200': { description: Voltou à configuração da versão pedida (nova versão criada) }
+  /v1/flags:
+    get:
+      operationId: evaluateFlagsForClient
+      x-koovela-action: public.flags.evaluate
+      summary: Flags já avaliadas para o contexto (tenant da credencial ou do slug; senão, global)
+      security: []
+      parameters:
+        - { name: slug, in: query, schema: { type: string }, description: Página de estabelecimento (o gateway resolve o tenant) }
+        - { name: If-None-Match, in: header, schema: { type: string } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, flags]
+                properties:
+                  version: { type: string }
+                  flags: { type: object, additionalProperties: { type: boolean } }
+          description: Só as flags marcadas para cliente
+        '304': { description: Sem mudança }
+components:
+  schemas:
+    FlagConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        default: { type: boolean }
+        kill_switch_off: { type: boolean }
+        exclude: { type: array, items: { type: string, format: uuid } }
+        include: { type: array, items: { type: string, format: uuid } }
+        verticals: { type: array, items: { type: string } }
+        percentage: { type: integer, minimum: 0, maximum: 10000, description: Em centésimos de ponto percentual }
+        reshuffle: { type: boolean, description: Troca o salt (re-sorteia a porcentagem) }
+    AuditPage:
+      type: object
+      required: [items, ingested_until]
+      properties:
+        ingested_until: { type: string, format: date-time, description: A trilha central está atualizada até aqui }
+        next_cursor: { type: [string, 'null'] }
+        items:
+          type: array
+          items:
+            allOf:
+              - $ref: './audit-record.schema.json'
+              - type: object
+                properties:
+                  seq: { type: integer }
+                  actor_display_name: { type: [string, 'null'] }
