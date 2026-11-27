@@ -1,0 +1,7 @@
+hooks:
+  before_plan:
+    - extension: spec-lint
+      command: speckit.spec-lint
+      description: Lint de spec (CONST VI) — bloqueia o plano se a spec violar a CONST 9.2
+      optional: false
+      enabled: true

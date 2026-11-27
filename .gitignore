@@ -1,0 +1,83 @@
+# ==========================================
+# ==========================================
+
+# ==========================================
+# Segredos, Chaves SSH e Variáveis de Ambiente
+# ==========================================
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.pub
+ssh-key-*
+*credentials*.json
+
+# ==========================================
+# macOS & OneDrive
+# ==========================================
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Icon?
+~$*
+*.tmp
+.Spotlight-V100
+.Trashes
+
+# ==========================================
+# Docker
+# ==========================================
+docker-compose.override.yml
+
+# ==========================================
+# Backend / Python / uv
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.uv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# ==========================================
+# Frontend / Mobile / Node.js
+# ==========================================
+node_modules/
+.next/
+out/
+.nuxt/
+.expo/
+.expo-shared/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ==========================================
+# IDEs e Editores
+# ==========================================
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+
+# Anotações locais
+bkp/
+.turbo/
+coverage/
+.terraform/
+*.tfstate*
+*.tfvars
+.claude/settings.local.json
