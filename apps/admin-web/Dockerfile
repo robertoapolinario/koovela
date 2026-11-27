@@ -6,7 +6,13 @@ RUN corepack enable
 COPY . .
 RUN pnpm install --frozen-lockfile && pnpm --filter @koovela/admin-web build
 
-FROM nginxinc/nginx-unprivileged@sha256:5aea7cc516b419e3526f47dd1531be31a56a046cfe44754d94f9383e13e2ee99
+# nginxinc/nginx-unprivileged:1.31.7-alpine
+FROM nginxinc/nginx-unprivileged@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
+# Patches de segurança da distro publicados depois do digest base (portão Trivy do CI).
+USER root
+RUN apk upgrade --no-cache
+# UID do usuário nginx da imagem unprivileged: o processo nunca roda como root.
+USER 101
 COPY infra/compose/nginx/spa.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /src/apps/admin-web/build/client/ /usr/share/nginx/html/
 EXPOSE 8080
